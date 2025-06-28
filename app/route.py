@@ -20,6 +20,7 @@ generation_lock = threading.Semaphore(1)
 def handle_healthcheck():
     if not generation_lock.acquire(blocking=False):
         return jsonify({"status": "busy"}), 503
+    generation_lock.release()  # 立即释放锁
     return jsonify({"status": "healthy"}), 200
 
 @music_bp.route('/music', methods=['POST'])

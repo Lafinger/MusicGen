@@ -1,6 +1,0 @@
-flask
-scipy
-gunicorn
-
-# numpy
-# transformers[torch]

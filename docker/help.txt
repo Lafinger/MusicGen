@@ -5,5 +5,10 @@
 # deb https://mirrors.tuna.tsinghua.edu.cn/debian-security/ buster/updates main contrib non-free\
 # " > /etc/apt/sources.list
 
-docker build -f Dockerfile.cuda121 -t musicgen:cuda121 .
-docker run --gpus all -p 5000:5000 musicgen:cuda121
+docker build --no-cache -f Dockerfile.cuda121 -t musicgen:cuda121 .
+
+
+docker run -it --rm --gpus all -p 5000:5000 musicgen:cuda121
+docker run -it --rm --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5000:5000 musicgen:cuda121
+docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121
+docker run -d --restart=unless-stopped --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5000:5000 musicgen:cuda121

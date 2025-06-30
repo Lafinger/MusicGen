@@ -1,7 +1,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import Dict, List
 import json
-from jc_music_generate import JcMusicGenerate
+
+from controller import MusicController
 
 app = FastAPI(title="音乐生成服务")
 
@@ -22,30 +23,29 @@ class ConnectionManager:
     async def send_progress(self, client_id: str, progress: float):
         if client_id in self.active_connections:
             await self.active_connections[client_id].send_json({
-                "type": "progress",
+                "event": "progress",
                 "data": progress
             })
 
     async def send_completion(self, client_id: str, filename: str):
         if client_id in self.active_connections:
             await self.active_connections[client_id].send_json({
-                "type": "complete",
+                "event": "complete",
                 "data": filename
             })
 
-manager = ConnectionManager()
 
-# 创建音乐生成器实例
-music_generator = JcMusicGenerate()
+connection_manager = ConnectionManager()
+music_controller = MusicController()
+
 
 # 自定义进度回调函数
-async def progress_callback(client_id: str, generated: int, to_generate: int):
-    percentage = (generated / to_generate) * 100
-    await manager.send_progress(client_id, percentage)
+async def progress_callback(client_id: str, percentage: float):
+    await connection_manager.send_progress(client_id, percentage)
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket, client_id)
+    await connection_manager.connect(websocket, client_id)
     try:
         while True:
             # 等待接收消息

@@ -1,23 +1,51 @@
-FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-devel
 
-# 配置 pip 镜像源
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PATH="/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+# 设置 Hugging Face 镜像加速
+# ENV HF_HOME=/root/.cache/huggingface
+# ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV HF_ENDPOINT=https://hf-mirror.com
+
+
+# 安装Python和基本工具
+RUN apt-get update && apt-get install -y \
+    git \
+    ffmpeg \
+    build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+    
+# 设置pip源
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 安装系统依赖
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        git \
-        ffmpeg \
-        build-essential \
-        && apt-get clean \
-        && rm -rf /var/lib/apt/lists/*
-
-# 升级 pip 和构建工具
+# 升级pip工具
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-RUN pip install -U audiocraft
+# 安装特定版本的PyTorch
+RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
+# 安装audiocraft
+RUN pip install --no-cache-dir -U audiocraft
+
+# 克隆仓库并安装依赖
 RUN mkdir -p /workspace && git clone https://gitee.com/jasonchen955/MusicGen.git /workspace/MusicGen
-RUN cd /workspace/MusicGen && pip install -r requirements.txt
 
+# 复制huggingface模型到容器中
+RUN mkdir -p /root/.cache/huggingface
+COPY ./huggingface /root/.cache/huggingface
+
+# 切换到MusicGen目录
 WORKDIR /workspace/MusicGen
-CMD ["python", "./demos/musicgen_app.py", "--listen", "0.0.0.0", "--server_port", "5000"]
+
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 测试CUDA是否可用
+# RUN python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('CUDA version:', torch.version.cuda); print('Device count:', torch.cuda.device_count())"
+
+# 设置启动命令
+CMD ["python3", "./demos/musicgen_app.py", "--listen", "0.0.0.0", "--server_port", "5000"]

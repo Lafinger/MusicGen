@@ -60,26 +60,43 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             # 等待接收消息
             data = await websocket.receive_json()
             
-            # 创建一个同步的进度回调包装器
-            def sync_progress_callback(percentage: float):
+            # 创建一个异步的进度回调函数
+            async def async_progress_callback(percentage: float):
                 # 创建进度更新消息
                 json_data = {
                     "status": "healthy",
                     "event": "generating",
                     "progress": percentage
                 }
-                
-                # 使用 asyncio.create_task 在事件循环中安排异步发送
-                asyncio.create_task(client_progress_callback(client_id, json_data))
+                # 直接异步发送进度更新
+                await client_progress_callback(client_id, json_data)
             
             await connection_manager.send_message(client_id, {
                 "status": "healthy",
                 "event": "start"
             }) 
             
-            audio_data = music_controller.generate_music_with_progress(
+            # 获取当前事件循环的引用
+            loop = asyncio.get_running_loop()
+            
+            # 创建一个同步的包装器来调用异步回调
+            def sync_progress_wrapper(percentage: float):
+                # 使用已保存的事件循环引用
+                future = asyncio.run_coroutine_threadsafe(
+                    async_progress_callback(percentage),
+                    loop
+                )
+                # 等待回调完成，但设置超时以避免阻塞
+                try:
+                    future.result(timeout=1)
+                except Exception as e:
+                    logger.error(f"Error sending progress update: {e}")
+            
+            # 在单独的线程中运行音乐生成
+            audio_data = await asyncio.to_thread(
+                music_controller.generate_music_with_progress,
                 params=data,
-                progress_callback=sync_progress_callback
+                progress_callback=sync_progress_wrapper
             )
 
             await connection_manager.send_message(client_id, {

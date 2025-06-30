@@ -1,8 +1,24 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from typing import Dict, List
-import json
-
 from controller import MusicController
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from typing import Dict
+import asyncio
+import logging
+import os
+
+# 配置日志
+log_dir = "./logs"
+os.makedirs(log_dir, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # 输出到控制台
+        logging.FileHandler('./logs/app.log')  # 输出到文件
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="音乐生成服务")
 
@@ -15,24 +31,17 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
         self.active_connections[client_id] = websocket
+        logger.info(f"Client {client_id} connected")
 
     def disconnect(self, client_id: str):
         if client_id in self.active_connections:
             del self.active_connections[client_id]
+            logger.info(f"Client {client_id} disconnected")
 
-    async def send_progress(self, client_id: str, progress: float):
+    async def send_message(self, client_id: str, json_data: Dict):
         if client_id in self.active_connections:
-            await self.active_connections[client_id].send_json({
-                "event": "progress",
-                "data": progress
-            })
-
-    async def send_completion(self, client_id: str, filename: str):
-        if client_id in self.active_connections:
-            await self.active_connections[client_id].send_json({
-                "event": "complete",
-                "data": filename
-            })
+            await self.active_connections[client_id].send_json(json_data)
+            logger.info(f"Sent message to client {client_id}: {json_data}")
 
 
 connection_manager = ConnectionManager()
@@ -40,10 +49,10 @@ music_controller = MusicController()
 
 
 # 自定义进度回调函数
-async def progress_callback(client_id: str, percentage: float):
-    await connection_manager.send_progress(client_id, percentage)
+async def client_progress_callback(client_id: str, json_data: Dict):
+    await connection_manager.send_message(client_id, json_data)
 
-@app.websocket("/ws/{client_id}")
+@app.websocket("/ws/music/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     await connection_manager.connect(websocket, client_id)
     try:
@@ -51,32 +60,44 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             # 等待接收消息
             data = await websocket.receive_json()
             
-            if data["type"] == "generate":
-                # 设置针对该客户端的进度回调
-                async def client_progress_callback(generated: int, to_generate: int):
-                    await progress_callback(client_id, generated, to_generate)
+            # 创建一个同步的进度回调包装器
+            def sync_progress_callback(percentage: float):
+                # 创建进度更新消息
+                json_data = {
+                    "status": "healthy",
+                    "event": "generating",
+                    "progress": percentage
+                }
                 
-                # 设置回调函数
-                music_generator.set_progress_callback(client_progress_callback)
-                
-                # 生成音乐
-                filename = music_generator.generate_music(
-                    user_prompt=data["prompt"],
-                    duration=data.get("duration", 30),
-                    mbd=data.get("mbd", False)
-                )
-                
-                # 发送完成消息
-                await manager.send_completion(client_id, filename)
-                
+                # 使用 asyncio.create_task 在事件循环中安排异步发送
+                asyncio.create_task(client_progress_callback(client_id, json_data))
+            
+            await connection_manager.send_message(client_id, {
+                "status": "healthy",
+                "event": "start"
+            }) 
+            
+            audio_data = music_controller.generate_music_with_progress(
+                params=data,
+                progress_callback=sync_progress_callback
+            )
+
+            await connection_manager.send_message(client_id, {
+                "status": "healthy",
+                "event": "completed",
+                "audio_data": audio_data
+            }) 
+
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
+        connection_manager.disconnect(client_id)
 
 # 健康检查端点
-@app.get("/health")
+@app.get("/api/healthcheck")
 async def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy"
+    }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888)
+    uvicorn.run("main:app", host="0.0.0.0", port=5555, reload=True)

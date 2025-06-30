@@ -1,4 +1,4 @@
-from .service import MusicGenService
+from service import MusicGenService
 
 import io
 import re
@@ -16,7 +16,7 @@ class MusicController:
     def __init__(self):
         self.musicgen_service = MusicGenService()
 
-    def generate_music_with_progress(self, params: tp.Optional[dict] = None, progress_callback: tp.Optional[tp.Callable[[float], None]] = None):
+    def generate_music_with_progress(self, params: tp.Optional[dict] = None, progress_callback: tp.Optional[tp.Callable[[float], None]] = None) -> str:
         """处理音乐生成请求
 
         Args:

@@ -8,10 +8,7 @@
 docker build --no-cache -f Dockerfile.audiocraft.cuda121 -t audiocraft:cuda121 .
 docker build --no-cache -f .\Dockerfile.audiocraft.cuda121.models.all -t audiocraft:cuda121-models-all .
 
-docker run -it --rm --gpus all -p 5000:5000 musicgen:cuda121
-docker run -it --rm --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5000:5000 musicgen:cuda121
-docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121
-docker run -d --restart=unless-stopped --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5000:5000 musicgen:cuda121
-
-
-docker run -d --restart=unless-stopped --gpus all -v ./huggingface:/root/.cache/huggingface -p 5555:5555 musicgen:cuda121-all-volume
+docker run -it --rm --gpus all -p 5555:5555 audiocraft:cuda121-models-all
+docker run -it --rm --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5555:5555 audiocraft:cuda121-models-all
+docker run -d --restart=unless-stopped --gpus all -p 5555:5555 audiocraft:cuda121-models-all
+docker run -d --restart=unless-stopped --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5555:5555 audiocraft:cuda121-models-all

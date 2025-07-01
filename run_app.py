@@ -1,6 +1,10 @@
 import logging
+import os
 from app import create_app
 # from config import DevelopmentConfig
+
+# 创建输出目录
+os.makedirs("./logs", exist_ok=True)
 
 # 配置日志
 logging.basicConfig(

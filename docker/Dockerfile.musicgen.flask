@@ -10,14 +10,15 @@ ENV LD_LIBRARY_PATH="/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cu
 # ENV HF_HUB_ENABLE_HF_TRANSFER=1
 ENV HF_ENDPOINT=https://hf-mirror.com
 
+COPY ./requirements-flask.txt /workspace/requirements-flask.txt
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements-flask.txt
+
 # 克隆仓库并安装依赖
 RUN mkdir -p /workspace && git clone https://gitee.com/jasonchen955/MusicGen.git /workspace/MusicGen
 
 # 切换到MusicGen目录
 WORKDIR /workspace/MusicGen
-
-# 安装Python依赖
-RUN pip install --no-cache-dir -r requirements-flask.txt
 
 # 设置启动命令
 CMD ["python3", "./run_app.py", "--listen", "0.0.0.0", "--server_port", "5000"]

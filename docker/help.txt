@@ -16,8 +16,23 @@ docker run -d --restart=unless-stopped --gpus all -p 5555:5555 audiocraft:cuda12
 docker run -d --restart=unless-stopped --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --shm-size=8g -p 5555:5555 audiocraft:cuda121-models-all
 
 
-# musicgen 5000
+# musicgen flask 5000
+## models tiny image
 docker build --no-cache -f .\Dockerfile.musicgen.cuda121.models.tiny -t musicgen:cuda121-models-tiny .
 docker build -f .\Dockerfile.musicgen.cuda121.models.tiny -t musicgen:cuda121-models-tiny .
 
-docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121-models-tiny
+docker build -f --no-cache .\Dockerfile.musicgen.tiny.flask -t musicgen:cuda121-models-tiny-flask .
+docker build -f .\Dockerfile.musicgen.tiny.flask -t musicgen:cuda121-models-tiny-flask .
+
+docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121-models-tiny-flask
+
+# musicgen flask 5001
+## models all image
+docker build --no-cache -f .\Dockerfile.audiocraft.cuda121.models.all -t musicgen:cuda121-models-all .
+docker build -f .\Dockerfile.audiocraft.cuda121.models.all -t musicgen:cuda121-models-all .
+
+docker build -f --no-cache .\Dockerfile.musicgen.all.flask -t musicgen:cuda121-models-all-flask .
+docker build -f .\Dockerfile.musicgen.all.flask -t musicgen:cuda121-models-all-flask .
+
+docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121-models-all-flask
+

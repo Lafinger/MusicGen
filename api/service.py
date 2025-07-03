@@ -1,4 +1,4 @@
-import logging
+from loguru import logger
 from audiocraft.models.encodec import InterleaveStereoCompressionModel
 from audiocraft.models import MusicGen, MultiBandDiffusion
 from audiocraft.data.audio import audio_write
@@ -9,8 +9,6 @@ import time
 from pathlib import Path
 import typing as tp
 from einops import rearrange
-
-logger = logging.getLogger(__name__)
 
 class MusicGenService:
     ''' A class that represents a music generation service.

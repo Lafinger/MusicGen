@@ -3,14 +3,11 @@ from service import MusicGenService
 import io
 import re
 import scipy
-import logging
+from loguru import logger
 import numpy as np
 
 import base64
 import typing as tp
-
-logger = logging.getLogger(__name__)
-
 
 class MusicController:
     def __init__(self):

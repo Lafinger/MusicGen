@@ -3,14 +3,11 @@ from service import MusicGenService
 import io
 import re
 import scipy
-import logging
+from loguru import logger
 import numpy as np
 
 import base64
 import typing as tp
-
-logger = logging.getLogger(__name__)
-
 
 class MusicController:
     def __init__(self):
@@ -102,6 +99,10 @@ class MusicController:
             audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
             
             return audio_base64
+        
+        except InterruptedError as e:
+            logger.error(f"InterruptedError during music generation: {str(e)}")
+            raise InterruptedError(f"InterruptedError during music generation: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error during music generation: {str(e)}")

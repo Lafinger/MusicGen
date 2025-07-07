@@ -2,7 +2,7 @@ from controller import MusicController
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-from typing import Dict, AsyncGenerator
+from typing import Dict, AsyncGenerator, Union, Optional
 import asyncio
 from loguru import logger
 import os
@@ -168,73 +168,90 @@ async def websocket_generate_music(websocket: WebSocket, client_id: str):
 async def generate_progress_stream(data: dict) -> AsyncGenerator[str, None]:
     """生成进度流"""
     try:
-        # 创建一个事件循环引用
-        loop = asyncio.get_running_loop()
+        # 创建异步队列用于进度通知
         progress_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
         
-        # 创建一个同步的进度回调函数
-        def sync_progress_callback(percentage: float):
-            # 将进度放入队列
-            asyncio.run_coroutine_threadsafe(
-                progress_queue.put({
-                    "event": "generating",
-                    "progress": percentage
-                }),
-                loop
-            )
+        # 创建一个进度回调函数
+        def progress_callback(percentage: float):
+            logger.info(f"Progress callback called with: {percentage}%")
+            try:
+                # 直接使用线程安全的方式将进度放入队列
+                future = asyncio.run_coroutine_threadsafe(
+                    progress_queue.put({
+                        "event": "generating",
+                        "progress": percentage
+                    }), 
+                    loop
+                )
+                # 等待确保消息被放入队列
+                future.result(timeout=1.0)
+                logger.info(f"Progress {percentage}% successfully queued")
+            except Exception as e:
+                logger.error(f"Error in progress callback: {e}")
 
         # 发送开始事件
-        yield json.dumps({"event": "start"}) + "\n"
-        
-        # 在单独的线程中运行音乐生成
-        audio_task = asyncio.create_task(asyncio.to_thread(
-            music_controller.generate_music_with_progress,
-            params=data,
-            progress_callback=sync_progress_callback
-        ))
+        start_event = f"event: message\ndata: {json.dumps({'event': 'start'})}\n\n"
+        logger.info("Sending start event")
+        yield start_event
 
-        # 等待进度更新或音乐生成完成
-        while True:
-            try:
-                # 等待进度队列或音频生成任务
-                done, _ = await asyncio.wait(
-                    [
-                        asyncio.create_task(progress_queue.get()),
-                        audio_task
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
-                
-                # 检查哪个任务完成了
-                for task in done:
-                    if task == audio_task:
-                        # 音频生成完成
-                        audio_data = await audio_task
-                        # 发送完成事件
-                        yield json.dumps({
-                            "event": "completed",
-                            "audio_data": audio_data
-                        }) + "\n"
-                        return
-                    else:
-                        # 进度更新
-                        progress_data = task.result()
-                        yield json.dumps(progress_data) + "\n"
-                        
-            except Exception as e:
-                # 发送错误事件
-                yield json.dumps({
-                    "event": "error",
-                    "message": f"音乐生成过程中发生错误: {str(e)}"
-                }) + "\n"
-                return
-                
+        try:
+            # 启动音乐生成任务
+            logger.info("Starting music generation task")
+            generation_task = asyncio.create_task(asyncio.to_thread(
+                music_controller.generate_music_with_progress,
+                params=data,
+                progress_callback=progress_callback
+            ))
+
+            # 处理进度消息直到生成完成
+            while not generation_task.done():
+                try:
+                    logger.info(f"Waiting for progress message, queue size: {progress_queue.qsize()}")
+                    # 使用超时来定期检查生成任务是否完成
+                    progress_data = await asyncio.wait_for(
+                        progress_queue.get(),
+                        timeout=0.5  # 增加超时时间
+                    )
+                    progress_event = f"event: message\ndata: {json.dumps(progress_data)}\n\n"
+                    logger.info(f"Sending progress event: {progress_event.strip()}")
+                    yield progress_event
+                except asyncio.TimeoutError:
+                    logger.debug("Progress message timeout, continuing...")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing progress message: {e}")
+                    break
+
+            # 获取生成结果
+            logger.info("Generation task completed, getting result")
+            audio_data = await generation_task
+            
+            # 处理剩余的进度消息
+            while not progress_queue.empty():
+                try:
+                    progress_data = progress_queue.get_nowait()
+                    progress_event = f"event: message\ndata: {json.dumps(progress_data)}\n\n"
+                    logger.info(f"Sending remaining progress event: {progress_event.strip()}")
+                    yield progress_event
+                except Exception as e:
+                    logger.error(f"Error processing remaining progress: {e}")
+                    break
+
+            # 发送完成事件
+            complete_event = f"event: message\ndata: {json.dumps({'event': 'completed', 'audio_data': audio_data})}\n\n"
+            logger.info("Sending completion event")
+            yield complete_event
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error in music generation: {error_msg}")
+            error_event = f"event: message\ndata: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {error_msg}'})}\n\n"
+            yield error_event
+            
     except Exception as e:
         logger.error(f"Error in progress stream: {e}")
-        yield json.dumps({
-            "event": "error",
-            "message": "音乐生成过程中发生错误"
-        }) + "\n"
+        yield f"event: message\ndata: {json.dumps({'event': 'error', 'message': '音乐生成过程中发生错误'})}\n\n"
 
 @router.post("/api/v1/generate_music")
 async def http_generate_music(request: Request):
@@ -254,13 +271,19 @@ async def http_generate_music(request: Request):
         if not isinstance(data, dict) or "description" not in data:
             return JSONResponse(
                 status_code=400,
-                content={"error": "缺少必要的描述参数"}
+                content={"error": "入参出错"}
             )
             
-        # 返回流式响应
+        # 返回SSE流式响应
         return StreamingResponse(
             generate_progress_stream(data),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+                "Access-Control-Allow-Origin": "*"  # 允许跨域访问
+            }
         )
         
     except Exception as e:

@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements-flask.txt
 RUN mkdir -p /workspace && git clone https://gitee.com/jasonchen955/MusicGen.git /workspace/MusicGen
 
 # 切换到MusicGen目录
-WORKDIR /workspace/MusicGen
+WORKDIR /workspace/MusicGen/api
 
 # 设置启动命令
-CMD ["python3", "./run_app.py", "--listen", "0.0.0.0", "--server_port", "5000"]
+CMD ["python3", "./main.py", "--listen", "0.0.0.0", "--server_port", "5555"]

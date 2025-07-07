@@ -30,146 +30,17 @@ app = FastAPI(
     version="1.0.0")
 
 router = APIRouter()
-
-# 全局信号量，限制只允许一个连接
-global_semaphore = asyncio.Semaphore(1) 
-
-# WebSocket连接管理器
-class ConnectionManager:
-    def __init__(self):
-        # 存储活跃的WebSocket连接
-        self.active_connections: Dict[str, WebSocket] = {}
-
-    async def connect(self, websocket: WebSocket, client_id: str):
-        try:
-            await websocket.accept()
-            self.active_connections[client_id] = websocket
-        except Exception as e:
-            logger.error(f"Error accepting WebSocket connection for client {client_id}: {e}")
-            await websocket.close(code=1006)
-
-    async def disconnect(self, client_id: str):
-        try:
-            if client_id in self.active_connections:
-                ws = self.active_connections[client_id]
-                del self.active_connections[client_id]  # 先移除连接
-                try:
-                    await ws.close(code=1000)  # 使用1000表示正常关闭
-                except Exception as e:
-                    logger.error(f"Error closing WebSocket for client {client_id}: {e}")
-            else:
-                logger.error(f"Client {client_id} not found in active connections")
-        except Exception as e:
-            logger.error(f"Error in disconnect for client {client_id}: {e}")
-
-    async def send_message(self, client_id: str, json_data: Dict):
-        try:
-            if client_id in self.active_connections:
-                if self.active_connections[client_id].client_state == WebSocketState.CONNECTED:
-                    await self.active_connections[client_id].send_json(json_data)
-                else:
-                    logger.error(f"Client {client_id} is not connected")
-            else:
-                logger.error(f"Client {client_id} not found in active connections")
-        except Exception as e:
-            logger.error(f"Error sending message to client {client_id}: {e}")
-
-
-connection_manager = ConnectionManager()
 music_controller = MusicController()
 
-@app.websocket("/ws/generate_music/{client_id}")
-async def websocket_generate_music(websocket: WebSocket, client_id: str):
-    try:
-        # --------------------------------- 限流检测 ---------------------------------
-        if not await global_semaphore.acquire():
-            try:
-                await websocket.accept()
-                # 如果无法获取锁，发送忙碌消息并关闭连接
-                await websocket.send_json({
-                    "event": "error",
-                    "message": "服务器正忙，当前正在处理任务，请稍后重试"
-                })
-            finally:
-                await websocket.close(code=1006)
-            return
-
-        # ------------------------- 开始处理音乐生成 -------------------------
-        try:
-            # 将连接添加到管理器
-            await connection_manager.connect(websocket, client_id)
-
-            # 创建一个异步的进度回调函数
-            async def async_progress_callback(percentage: float):
-                json_data = {
-                    "event": "generating",
-                    "progress": percentage
-                }
-                await connection_manager.send_message(client_id, json_data)
-
-            # 获取当前事件循环的引用
-            loop = asyncio.get_running_loop()
-            
-            # 创建一个同步的包装器来调用异步回调
-            def sync_progress_wrapper(percentage: float):
-                future = asyncio.run_coroutine_threadsafe(
-                    async_progress_callback(percentage),
-                    loop
-                )
-                future.result(timeout=0.1)
-
-            while True:
-                # 等待接收消息
-                data = await websocket.receive_json()
-                
-                # 发送开始事件
-                await connection_manager.send_message(client_id, {
-                    "event": "start"
-                })
-                
-                # 在单独的线程中运行音乐生成
-                audio_data = await asyncio.to_thread(
-                    music_controller.generate_music_with_progress,
-                    params=data,
-                    progress_callback=sync_progress_wrapper
-                )
-
-                # 发送完成事件
-                await connection_manager.send_message(client_id, {
-                    "event": "completed",
-                    "audio_data": audio_data
-                })
-                break
-
-        except WebSocketDisconnect:
-            logger.info(f"WebSocket disconnected for client {client_id}")
-        except Exception as e:
-            logger.error(f"Error in music generation for client {client_id}: {e}")
-            try:
-                await connection_manager.send_message(client_id, {
-                    "event": "error",
-                    "message": "音乐生成过程中发生错误"
-                })
-            except:
-                pass
-
-    except Exception as e:
-        logger.error(f"Error in WebSocket connection setup for client {client_id}: {e}")
-    finally:
-        # 确保连接被清理
-        await connection_manager.disconnect(client_id)
-        # 释放信号量
-        global_semaphore.release()
-        logger.info(f"WebSocket connection closed for client {client_id}")
-
+# 全局信号量，限制只允许一个连接
+global_semaphore = asyncio.Semaphore(1)
 
 async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
     try:
-
         progress_event = asyncio.Event()
         progress_value: float = 0.0
-
+        
         # 创建一个进度回调函数
         def progress_callback(percentage: float):
             try:
@@ -205,6 +76,7 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
                 except Exception as e:
                     logger.error(f"break loop, Error processing progress message: {e}")
                     break
+
             # 如果任务没有被取消，获取生成结果, 并发送
             if generation_task.cancelled():
                 logger.warning("Generation task cancale")
@@ -218,6 +90,9 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
         except Exception as e:
             logger.error(f"Error in music generation: {str(e)}")
             yield f"event: message\ndata: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {e}'})}\n\n"
+        finally:
+            global_semaphore.release()
+            logger.info("Semaphore released after stream completion")
             
     except Exception as e:
         logger.error(f"Error in progress stream: {e}")
@@ -227,16 +102,9 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
 async def http_generate_music(request: Request):
     """流式生成音乐接口
     """
-
-    # --------------------------------- 限流检测 ---------------------------------
-    if not await global_semaphore.acquire():
-        return JSONResponse(
-            status_code=503,
-            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
-        )
-    # --------------------------------- 限流检测 ---------------------------------
-
     try:
+        # 尝试获取信号量，设置超时时间为0.1秒
+        await asyncio.wait_for(global_semaphore.acquire(), timeout=0.1)
         # 获取请求数据
         data = await request.json()
         
@@ -258,15 +126,20 @@ async def http_generate_music(request: Request):
                 "Access-Control-Allow-Origin": "*"  # 允许跨域访问
             }
         )
+
+    except asyncio.TimeoutError:
+        logger.error("Rate limit reached, request rejected")
+        return JSONResponse(
+            status_code=503,
+            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
+        )
         
     except Exception as e:
-        logger.error(f"Error in generate_music endpoint: {e}")
+        logger.error(f"Error in server internal: {e}")
         return JSONResponse(
             status_code=500,
             content={"error": "服务器内部错误"}
         )
-    finally:
-        global_semaphore.release()
 
 app.include_router(router)
 

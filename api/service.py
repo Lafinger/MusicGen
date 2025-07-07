@@ -97,7 +97,7 @@ class MusicGenService:
 
         def progress_handler(generated, to_generate):
             percentage = (generated/to_generate)*100
-            logger.info(f"Progress: {percentage:.2f}%")
+            logger.info(f"generate music progress: {percentage:.2f}%")
             if progress_callback:
                 progress_callback(percentage)
         self.model.set_custom_progress_callback(progress_handler)
@@ -152,7 +152,7 @@ class MusicGenService:
             return audio_tensor, self.model.sample_rate
 
         except InterruptedError:
-            logger.warning("Music generation interrupted by client")
+            logger.error("Music generation interrupted by client")
             raise InterruptedError("Music generation interrupted by client")
         finally:
             logger.info("Music generation completed")

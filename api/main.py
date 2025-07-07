@@ -9,6 +9,21 @@ import os
 from starlette.websockets import WebSocketState
 import json
 
+# 配置日志
+log_dir = "./log"
+os.makedirs(log_dir, exist_ok=True)
+
+# # 配置 loguru
+# logger.add(
+#     "./logs/app.log",
+#     rotation="50 MB",    # 日志文件达到500MB时轮转
+#     retention="1 days",  # 保留10天的日志
+#     enqueue=True,        # 异步写入
+#     encoding="utf-8",
+#     level="INFO",
+#     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+# )
+
 app = FastAPI(
     title="音乐生成服务", 
     description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
@@ -16,25 +31,8 @@ app = FastAPI(
 
 router = APIRouter()
 
-# 配置日志
-log_dir = "./logs"
-os.makedirs(log_dir, exist_ok=True)
-
 # 全局信号量，限制只允许一个连接
 global_semaphore = asyncio.Semaphore(1) 
-
-# 配置 loguru
-logger.add(
-    "./logs/app.log",
-    rotation="50 MB",    # 日志文件达到500MB时轮转
-    retention="1 days",  # 保留10天的日志
-    enqueue=True,        # 异步写入
-    encoding="utf-8",
-    level="INFO",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
-)
-
-
 
 # WebSocket连接管理器
 class ConnectionManager:
@@ -165,35 +163,25 @@ async def websocket_generate_music(websocket: WebSocket, client_id: str):
         logger.info(f"WebSocket connection closed for client {client_id}")
 
 
-async def generate_progress_stream(data: dict) -> AsyncGenerator[str, None]:
+async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
     try:
-        # 创建异步队列用于进度通知
-        progress_queue = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-        
+
+        progress_event = asyncio.Event()
+        progress_value: float = 0.0
+
         # 创建一个进度回调函数
         def progress_callback(percentage: float):
-            logger.info(f"Progress callback called with: {percentage}%")
             try:
-                # 直接使用线程安全的方式将进度放入队列
-                future = asyncio.run_coroutine_threadsafe(
-                    progress_queue.put({
-                        "event": "generating",
-                        "progress": percentage
-                    }), 
-                    loop
-                )
-                # 等待确保消息被放入队列
-                future.result(timeout=1.0)
-                logger.info(f"Progress {percentage}% successfully queued")
+                nonlocal progress_value
+                progress_value = percentage
+                progress_event.set()
             except Exception as e:
                 logger.error(f"Error in progress callback: {e}")
 
         # 发送开始事件
-        start_event = f"event: message\ndata: {json.dumps({'event': 'start'})}\n\n"
         logger.info("Sending start event")
-        yield start_event
+        yield f"event: message\ndata: {json.dumps({'event': 'start'})}\n\n"
 
         try:
             # 启动音乐生成任务
@@ -205,49 +193,31 @@ async def generate_progress_stream(data: dict) -> AsyncGenerator[str, None]:
             ))
 
             # 处理进度消息直到生成完成
-            while not generation_task.done():
+            while not generation_task.done() and not generation_task.cancelled() and progress_value != 100:
                 try:
-                    logger.info(f"Waiting for progress message, queue size: {progress_queue.qsize()}")
-                    # 使用超时来定期检查生成任务是否完成
-                    progress_data = await asyncio.wait_for(
-                        progress_queue.get(),
-                        timeout=0.5  # 增加超时时间
-                    )
-                    progress_event = f"event: message\ndata: {json.dumps(progress_data)}\n\n"
-                    logger.info(f"Sending progress event: {progress_event.strip()}")
-                    yield progress_event
+                    logger.info("waiting for send progress message...")
+                    await asyncio.wait_for(progress_event.wait(), timeout=5)
+                    progress_event.clear()
+                    yield f"event: message\ndata: {json.dumps({'event': 'progressing', 'progress': progress_value})}\n\n"
                 except asyncio.TimeoutError:
-                    logger.debug("Progress message timeout, continuing...")
-                    continue
-                except Exception as e:
-                    logger.error(f"Error processing progress message: {e}")
+                    logger.error("break loop, Progress message timeout")
                     break
-
-            # 获取生成结果
-            logger.info("Generation task completed, getting result")
-            audio_data = await generation_task
-            
-            # 处理剩余的进度消息
-            while not progress_queue.empty():
-                try:
-                    progress_data = progress_queue.get_nowait()
-                    progress_event = f"event: message\ndata: {json.dumps(progress_data)}\n\n"
-                    logger.info(f"Sending remaining progress event: {progress_event.strip()}")
-                    yield progress_event
                 except Exception as e:
-                    logger.error(f"Error processing remaining progress: {e}")
+                    logger.error(f"break loop, Error processing progress message: {e}")
                     break
-
-            # 发送完成事件
-            complete_event = f"event: message\ndata: {json.dumps({'event': 'completed', 'audio_data': audio_data})}\n\n"
-            logger.info("Sending completion event")
-            yield complete_event
-
+            # 如果任务没有被取消，获取生成结果, 并发送
+            if generation_task.cancelled():
+                logger.warning("Generation task cancale")
+            else:
+                logger.info("Generation task completed, getting result")
+                audio_data = await generation_task
+                yield f"event: message\ndata: {json.dumps({'event': 'completed', 'audio_data': audio_data})}\n\n"
+        except InterruptedError as e:
+            logger.error(f"Music generation interrupted: {e}")
+            yield f"event: message\ndata: {json.dumps({'event': 'interrupted', 'message': str(e)})}\n\n"
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error in music generation: {error_msg}")
-            error_event = f"event: message\ndata: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {error_msg}'})}\n\n"
-            yield error_event
+            logger.error(f"Error in music generation: {str(e)}")
+            yield f"event: message\ndata: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {e}'})}\n\n"
             
     except Exception as e:
         logger.error(f"Error in progress stream: {e}")
@@ -256,13 +226,16 @@ async def generate_progress_stream(data: dict) -> AsyncGenerator[str, None]:
 @router.post("/api/v1/generate_music")
 async def http_generate_music(request: Request):
     """流式生成音乐接口
-    
-    返回一个JSON行格式的流，每行包含一个事件：
-    1. {"event": "start"} - 开始生成
-    2. {"event": "generating", "progress": float} - 生成进度更新
-    3. {"event": "completed", "audio_data": str} - 生成完成，返回base64编码的音频数据
-    4. {"event": "error", "message": str} - 发生错误
     """
+
+    # --------------------------------- 限流检测 ---------------------------------
+    if not await global_semaphore.acquire():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
+        )
+    # --------------------------------- 限流检测 ---------------------------------
+
     try:
         # 获取请求数据
         data = await request.json()
@@ -276,7 +249,7 @@ async def http_generate_music(request: Request):
             
         # 返回SSE流式响应
         return StreamingResponse(
-            generate_progress_stream(data),
+            generate_progress_stream(data, request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -292,33 +265,12 @@ async def http_generate_music(request: Request):
             status_code=500,
             content={"error": "服务器内部错误"}
         )
+    finally:
+        global_semaphore.release()
 
 app.include_router(router)
 
 
 if __name__ == "__main__":
     import uvicorn
-    from uvicorn.config import LOGGING_CONFIG
-    
-    # 配置 uvicorn 日志格式
-    LOGGING_CONFIG["formatters"]["access"]["fmt"] = '%(asctime)s - %(levelname)s - %(message)s'
-    LOGGING_CONFIG["formatters"]["default"]["fmt"] = '%(asctime)s - %(levelname)s - %(message)s'
-    
-    # 创建配置类来设置 WebSocket 超时
-    class WSConfig(uvicorn.Config):
-        def __init__(self, app, **kwargs):
-            super().__init__(app, **kwargs)
-            # 设置 WebSocket ping 间隔和超时时间为最小值
-            self.ws_ping_interval = None  # 禁用 ping
-            self.ws_ping_timeout = None   # 禁用 ping 超时
-            self.websocket_close_timeout = 0  # 立即关闭
-    
-    # 使用自定义配置运行服务器
-    config = WSConfig(
-        "main:app",
-        host="0.0.0.0",
-        port=5555,
-        log_config=LOGGING_CONFIG
-    )
-    server = uvicorn.Server(config)
-    server.run()
+    uvicorn.run("main:app", host="0.0.0.0", port=5555, log_config="log_config.json", log_level="info")

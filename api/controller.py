@@ -99,6 +99,10 @@ class MusicController:
             audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
             
             return audio_base64
+        
+        except InterruptedError as e:
+            logger.error(f"InterruptedError during music generation: {str(e)}")
+            raise InterruptedError(f"InterruptedError during music generation: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error during music generation: {str(e)}")

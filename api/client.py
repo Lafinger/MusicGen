@@ -2,11 +2,8 @@ import asyncio
 import websockets
 import json
 import base64
-import wave
-import io
 import os
 import uuid
-from datetime import datetime
 
 class MusicGenClient:
     """音乐生成WebSocket客户端

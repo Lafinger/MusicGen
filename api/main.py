@@ -1,8 +1,8 @@
 from controller import MusicController
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter, Request
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-from typing import Dict, AsyncGenerator, Union, Optional
+from typing import Dict, AsyncGenerator
 import asyncio
 from loguru import logger
 import os
@@ -35,7 +35,7 @@ music_controller = MusicController()
 # 全局信号量，限制只允许一个连接
 global_semaphore = asyncio.Semaphore(1)
 
-async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
+async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
     try:
         stop_event = asyncio.Event()
@@ -87,7 +87,7 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
     except asyncio.CancelledError as e:
         progress_event.set()
         stop_event.set()
-        logger.exception(e)
+        logger.error("client cancel connection")
     finally:
         if not generation_task.done():
             generation_task.cancel()

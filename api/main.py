@@ -1,39 +1,43 @@
+from loguru_settings import TraceID, logger, setup_logging
 from controller import MusicController
 
-from fastapi import FastAPI, APIRouter, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Dict, AsyncGenerator
 import asyncio
-from loguru import logger
-import os
-from starlette.websockets import WebSocketState
 import json
 
-# 配置日志
-log_dir = "./log"
-os.makedirs(log_dir, exist_ok=True)
+# 全局信号量，限制只允许一个连接
+global_semaphore = asyncio.Semaphore(1)
 
-# # 配置 loguru
-# logger.add(
-#     "./logs/app.log",
-#     rotation="50 MB",    # 日志文件达到500MB时轮转
-#     retention="1 days",  # 保留10天的日志
-#     enqueue=True,        # 异步写入
-#     encoding="utf-8",
-#     level="INFO",
-#     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
-# )
+music_controller = MusicController()
+
 
 app = FastAPI(
     title="音乐生成服务", 
     description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
     version="1.0.0")
 
-router = APIRouter()
-music_controller = MusicController()
+@app.middleware("http")
+async def request_middleware(request: Request, call_next):
+    """
+    1.设置日志的全链路追踪
+    2.记录错误日志
+    """
+    try:
+        REQUEST_ID_KEY = "X-Request-Id"
+        _req_id_val = request.headers.get(REQUEST_ID_KEY, "")
+        req_id = TraceID.set(_req_id_val)
+        logger.info(f"{request.method} {request.url}")
+        response = await call_next(request)
+        response.headers[REQUEST_ID_KEY] = req_id.get()
+        return response
+    except Exception as ex:
+        logger.exception(ex)  # 这个方法能记录错误栈
+        return JSONResponse(content={"success": False}, status_code=500)
+    finally:
+        pass
 
-# 全局信号量，限制只允许一个连接
-global_semaphore = asyncio.Semaphore(1)
 
 async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
@@ -64,7 +68,6 @@ async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerat
             progress_callback=progress_callback
         ))
     
-
         # 处理进度消息直到生成完成
         while not generation_task.done() and not generation_task.cancelled() and progress_value < 100:
             await asyncio.wait(
@@ -94,7 +97,7 @@ async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerat
         global_semaphore.release()
         logger.info("Semaphore released after generate progress stream completion")
 
-@router.post("/api/v1/generate_music")
+@app.post("/api/v1/generate_music")
 async def http_generate_music(request: Request):
     """流式生成音乐接口
     """
@@ -129,9 +132,10 @@ async def http_generate_music(request: Request):
             }
         )
 
-app.include_router(router)
-
 
 if __name__ == "__main__":
+
+    setup_logging()
+
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5555, log_config="log_config.json", log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=5555, log_config="uvicorn_config.json", log_level="info")

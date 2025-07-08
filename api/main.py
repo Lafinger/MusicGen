@@ -3,6 +3,7 @@ from controller import MusicController
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, AsyncGenerator
 import asyncio
 import json
@@ -16,6 +17,14 @@ app = FastAPI(
         description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
         version="1.0.0")
 
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有来源
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有方法
+    allow_headers=["*"],  # 允许所有请求头
+)
 
 # @app.middleware("http")
 # async def request_middleware(request: Request, call_next):

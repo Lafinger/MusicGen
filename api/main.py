@@ -93,17 +93,17 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
                 except Exception as e:
                     logger.error(f"Error in getting music generation result: {str(e)}")
                     yield f"data: {json.dumps({'event': 'error', 'message': f'获取音乐生成结果发生错误: {e}'})}\n\n"
-
-        except asyncio.CancelledError:
-            if not generation_task.done():
-                generation_task.cancel()
-            progress_event.set()
-            stop_event.set()
-            logger.warning("Generate progress stream cancelled")
-            yield f"data: {json.dumps({'event': 'cancelled', 'message': '流式生成音乐已取消'})}\n\n"
         except Exception as e:
             logger.error(f"Error in music generation: {str(e)}")
             yield f"data: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {e}'})}\n\n"
+
+    except asyncio.CancelledError:
+        if not generation_task.done():
+            generation_task.cancel()
+        progress_event.set()
+        stop_event.set()
+        logger.warning("Generate progress stream cancelled")
+        yield f"data: {json.dumps({'event': 'cancelled', 'message': '流式生成音乐已取消'})}\n\n"
     except asyncio.TimeoutError:
         logger.error("Generate progress stream timeout")
         yield f"data: {json.dumps({'event': 'error', 'message': '流式生成音乐超时'})}\n\n"

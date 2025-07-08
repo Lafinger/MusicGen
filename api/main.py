@@ -8,7 +8,9 @@ import asyncio
 import json
 import argparse
 
-
+# 全局变量
+global_semaphore = asyncio.Semaphore(1)
+music_controller = MusicController()
 app = FastAPI(
         title="音乐生成服务", 
         description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
@@ -38,6 +40,7 @@ async def request_middleware(request: Request, call_next):
 
 async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
+    generation_task = None  # 初始化为None，防止在异常时未定义
     try:
         stop_event = asyncio.Event()
         progress_event = asyncio.Event()
@@ -89,7 +92,7 @@ async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerat
         stop_event.set()
         logger.error("client cancel connection")
     finally:
-        if not generation_task.done():
+        if generation_task is not None and not generation_task.done():
             generation_task.cancel()
         global_semaphore.release()
         logger.info("Semaphore released after generate progress stream completion")
@@ -135,7 +138,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="音乐生成服务API")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="服务监听地址，默认为0.0.0.0")
     parser.add_argument("--port", type=int, default=5555, help="服务监听端口，默认为5555")
-    parser.add_argument("--model_name", type=str, default="facebook/musicgen-large", help="音乐生成模型名称，默认为facebook/musicgen-large")
+    parser.add_argument("--music_model_name", type=str, default="facebook/musicgen-large", help="音乐生成模型名称，默认为facebook/musicgen-large")
     return parser.parse_args()
 
 
@@ -145,9 +148,8 @@ if __name__ == "__main__":
     # 解析命令行参数
     args = parse_arguments()
     
-    # 全局信号量，限制只允许一个连接
-    global_semaphore = asyncio.Semaphore(1)
-    music_controller = MusicController(model_name=args.model_name)
+    # 初始化音乐大模型
+    music_controller.init_music_model(args.music_model_name)
 
     import uvicorn
     uvicorn.run("main:app", host=args.host, port=args.port, log_config="uvicorn_config.json", log_level="info")

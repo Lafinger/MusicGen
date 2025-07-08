@@ -11,19 +11,17 @@ from einops import rearrange
 class MusicGenService:
     ''' 音乐生成服务 '''
 
-    _instance = None
-    _model_name = None
+    _instance: tp.Optional['MusicGenService'] = None
 
-    def __new__(cls, model_name: str = 'facebook/musicgen-large'):
+    def __new__(cls):
         ''' 单例模式 '''
         if cls._instance is None:
             cls._instance = super(MusicGenService, cls).__new__(cls)
-            cls._instance.init_resources(model_name)
         else:
             logger.warning("MusicGenService already initialized")
         return cls._instance
 
-    def init_resources(self, model_name: str = 'facebook/musicgen-large'):
+    def init_music_model(self, model_name: str = 'facebook/musicgen-large'):
         ''' 初始化模型和处理器资源 '''
 
         if not torch.cuda.is_available():

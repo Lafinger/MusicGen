@@ -29,6 +29,10 @@ class MusicController:
 
         Returns:
             str: Base64编码的WAV音频数据
+            
+        Raises:
+            ValueError: 参数验证失败时抛出
+            InterruptedError: 生成过程被用户中断时抛出
         """
         # 检查必需参数
         if not params or not isinstance(params, dict):
@@ -45,8 +49,8 @@ class MusicController:
             raise ValueError("MBD parameter must be a boolean")
         
         duration = params.get('duration', 30)
-        if not isinstance(duration, int) or duration < 1:
-            raise ValueError("Duration must be a positive integer")
+        if not isinstance(duration, int) or duration < 1 or duration > 60:
+            raise ValueError("Duration must be a positive integer and less than 60")
 
         top_k = params.get('top_k', 250)
         if not isinstance(top_k, int) or top_k < 1:
@@ -99,11 +103,11 @@ class MusicController:
             audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
             
             return audio_base64
-        
-        except InterruptedError as e:
-            logger.error(f"InterruptedError during music generation: {str(e)}")
-            raise InterruptedError(f"InterruptedError during music generation: {str(e)}")
             
+        except InterruptedError as e:
+            logger.warning(f"Music generation interrupted: {str(e)}")
+            # 直接传递中断异常，不再包装新的异常
+            raise
         except Exception as e:
             logger.error(f"Error during music generation: {str(e)}")
             raise ValueError(f"Error during music generation: {str(e)}")

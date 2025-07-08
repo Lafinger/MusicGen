@@ -91,15 +91,25 @@ class MusicGenService:
 
         Returns:
             tuple: (audio_tensor, sample_rate)
+            
+        Raises:
+            InterruptedError: 当生成过程被用户中断时抛出
+            Exception: 其他生成过程中的错误
         """
         logger.info("Generate audio start")
         start_time = time.time()
 
         def progress_handler(generated, to_generate):
-            percentage = (generated/to_generate)*100
-            logger.info(f"generate music progress: {percentage:.2f}%")
-            if progress_callback:
-                progress_callback(percentage)
+            try:
+                percentage = (generated/to_generate)*100
+                logger.info(f"generate music progress: {percentage:.2f}%")
+                if progress_callback:
+                    progress_callback(percentage)
+            except InterruptedError:
+                logger.warning("Generation interrupted by user")
+                # 直接传递原始中断异常，不包装新的异常
+                raise
+
         self.model.set_custom_progress_callback(progress_handler)
 
         self.model.set_generation_params(
@@ -152,7 +162,11 @@ class MusicGenService:
             return audio_tensor, self.model.sample_rate
 
         except InterruptedError:
-            logger.error("Music generation interrupted by client")
-            raise InterruptedError("Music generation interrupted by client")
+            # 直接传递中断异常，不再包装新的异常
+            logger.warning("Music generation interrupted by client")
+            raise
+        except Exception as e:
+            logger.error(f"Error in music generation: {str(e)}")
+            raise
         finally:
             logger.info("Music generation completed")

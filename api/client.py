@@ -3,6 +3,7 @@ import json
 import base64
 import os
 import uuid
+import time
 import aiohttp
 
 class MusicGenClient:
@@ -55,6 +56,7 @@ class MusicGenClient:
                 - temperature (float): 温度参数
                 - cfg_coef (float): 无分类器指导系数
         """
+        start_time = time.time()  # 记录开始时间
         try:
             # 准备请求参数
             params = {
@@ -105,23 +107,35 @@ class MusicGenClient:
                                             elif data["event"] == "progress":
                                                 print(f"\r生成进度: {data.get('progress', 0):.2f}%", end="", flush=True)
                                             elif data["event"] == "completed":
+                                                end_time = time.time()  # 记录结束时间
+                                                elapsed_time = end_time - start_time  # 计算经过的时间
                                                 print("\n音乐生成完成！")
+                                                print(f"总生成时间: {elapsed_time:.2f} 秒")
                                                 if "audio" in data:
                                                     self.save_audio(data["audio"])
                                                 else:
                                                     print("警告: 返回的数据中没有音频内容")
                                                 return
                                             elif data["event"] == "error":
+                                                end_time = time.time()  # 记录结束时间
+                                                elapsed_time = end_time - start_time  # 计算经过的时间
                                                 print(f"\n错误: {data.get('message', '未知错误')}")
+                                                print(f"用时: {elapsed_time:.2f} 秒")
                                                 return
                                     except json.JSONDecodeError as e:
                                         print(f"解析SSE事件数据出错: {e}")
                             buffer = ""
                                     
         except aiohttp.ClientError as e:
+            end_time = time.time()  # 记录结束时间
+            elapsed_time = end_time - start_time  # 计算经过的时间
             print(f"HTTP请求错误: {str(e)}")
+            print(f"用时: {elapsed_time:.2f} 秒")
         except Exception as e:
+            end_time = time.time()  # 记录结束时间
+            elapsed_time = end_time - start_time  # 计算经过的时间
             print(f"发生错误: {str(e)}")
+            print(f"用时: {elapsed_time:.2f} 秒")
 
 async def main():
     """测试示例"""

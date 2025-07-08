@@ -11,40 +11,21 @@ import typing as tp
 from einops import rearrange
 
 class MusicGenService:
-    ''' A class that represents a music generation service.
-
-    This class provides methods to initialize the model and processor resources,
-    and generate audio based on input description and duration.
-
-    Attributes:
-        _instance (MusicGenService): The singleton instance of the MusicGenService class.
-
-    '''
+    ''' 音乐生成服务 '''
 
     _instance = None
 
     def __new__(cls):
-        ''' Creates a new instance of the MusicGenService class if it doesn't exist.
-
-        Returns:
-            MusicGenService: The singleton instance of the MusicGenService class.
-
-        Raises:
-            RuntimeError: If initialization fails.
-        '''
-
+        ''' 单例模式 '''
         if cls._instance is None:
-            try:
-                cls._instance = super(MusicGenService, cls).__new__(cls)
-                cls._instance.init_resources()
-            except Exception as e:
-                logger.exception("Failed to initialize MusicGenService resources")
-                cls._instance = None 
-                raise RuntimeError(f"Initialization failed: {e}")
+            cls._instance = super(MusicGenService, cls).__new__(cls)
+            cls._instance.init_resources()
+        else:
+            logger.warning("MusicGenService already initialized")
         return cls._instance
 
     def init_resources(self):
-        '''初始化模型和处理器资源'''
+        ''' 初始化模型和处理器资源 '''
 
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available")
@@ -100,15 +81,10 @@ class MusicGenService:
         start_time = time.time()
 
         def progress_handler(generated, to_generate):
-            try:
-                percentage = (generated/to_generate)*100
-                logger.info(f"generate music progress: {percentage:.2f}%")
-                if progress_callback:
-                    progress_callback(percentage)
-            except InterruptedError:
-                logger.warning("Generation interrupted by user")
-                # 直接传递原始中断异常，不包装新的异常
-                raise
+            percentage = (generated/to_generate)*100
+            logger.info(f"generate music progress: {percentage:.2f}%")
+            if progress_callback:
+                progress_callback(percentage)
 
         self.model.set_custom_progress_callback(progress_handler)
 
@@ -123,50 +99,39 @@ class MusicGenService:
         enhanced_prompt = self.enhance_user_prompt(user_prompt)
         logger.info(f"Enhanced prompt : {enhanced_prompt}")
 
-        try:
-            outputs = self.model.generate(
-                descriptions=[enhanced_prompt],
-                progress=True,
-                return_tokens=mbd
-            )
+        outputs = self.model.generate(
+            descriptions=[enhanced_prompt],
+            progress=True,
+            return_tokens=mbd
+        )
 
-            if mbd:
-                tokens = outputs[1]
-                if isinstance(self.model.compression_model, InterleaveStereoCompressionModel):
-                    left, right = self.model.compression_model.get_left_right_codes(tokens)
-                    tokens = torch.cat([left, right])
-                outputs_diffusion = self.mbd_model.tokens_to_wav(tokens)
-                if isinstance(self.model.compression_model, InterleaveStereoCompressionModel):
-                    assert outputs_diffusion.shape[1] == 1  # output is mono
-                    outputs_diffusion = rearrange(outputs_diffusion, '(s b) c t -> b (s c) t', s=2)
-                audio_tensor = torch.cat([outputs[0], outputs_diffusion], dim=0)
-            else:
-                audio_tensor = outputs[0]  # 只获取音频数据，不需要tokens
-            
-            # 确保音频数据格式正确并转换为numpy数组
-            audio_tensor = audio_tensor.detach().cpu()
-            
-            # 如果是批处理输出，只取第一个样本
-            if audio_tensor.dim() == 3:  # (batch, channels, samples)
-                audio_tensor = audio_tensor[0]  # 只取第一个样本，变成 (channels, samples)
-            
-            # 转换为numpy数组
-            audio_tensor = audio_tensor.numpy()
-            
-            # 如果是单声道，压缩为1D数组
-            if audio_tensor.shape[0] == 1:  # 如果是单声道
-                logger.info("Audio tensor squeeze")
-                audio_tensor = audio_tensor.squeeze()  # 移除多余的维度
-            
-            logger.info(f"Generate audio completed, elapsed time: {time.time() - start_time:.2f} seconds")
-            return audio_tensor, self.model.sample_rate
-
-        except InterruptedError:
-            # 直接传递中断异常，不再包装新的异常
-            logger.warning("Music generation interrupted by client")
-            raise
-        except Exception as e:
-            logger.error(f"Error in music generation: {str(e)}")
-            raise
-        finally:
-            logger.info("Music generation completed")
+        if mbd:
+            tokens = outputs[1]
+            if isinstance(self.model.compression_model, InterleaveStereoCompressionModel):
+                left, right = self.model.compression_model.get_left_right_codes(tokens)
+                tokens = torch.cat([left, right])
+            outputs_diffusion = self.mbd_model.tokens_to_wav(tokens)
+            if isinstance(self.model.compression_model, InterleaveStereoCompressionModel):
+                assert outputs_diffusion.shape[1] == 1  # output is mono
+                outputs_diffusion = rearrange(outputs_diffusion, '(s b) c t -> b (s c) t', s=2)
+            audio_tensor = torch.cat([outputs[0], outputs_diffusion], dim=0)
+        else:
+            audio_tensor = outputs[0]  # 只获取音频数据，不需要tokens
+        
+        # 确保音频数据格式正确并转换为numpy数组
+        audio_tensor = audio_tensor.detach().cpu()
+        
+        # 如果是批处理输出，只取第一个样本
+        if audio_tensor.dim() == 3:  # (batch, channels, samples)
+            audio_tensor = audio_tensor[0]  # 只取第一个样本，变成 (channels, samples)
+        
+        # 转换为numpy数组
+        audio_tensor = audio_tensor.numpy()
+        
+        # 如果是单声道，压缩为1D数组
+        if audio_tensor.shape[0] == 1:  # 如果是单声道
+            logger.info("Audio tensor squeeze")
+            audio_tensor = audio_tensor.squeeze()  # 移除多余的维度
+        
+        logger.info(f"Generate audio completed, elapsed time: {time.time() - start_time:.2f} seconds")
+        return audio_tensor, self.model.sample_rate

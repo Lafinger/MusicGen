@@ -55,63 +55,42 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
         logger.info("Sending start event")
         yield f"data: {json.dumps({'event': 'start'})}\n\n"
 
-        try:
-            # 启动音乐生成任务
-            logger.info("Start music generation task")
-            generation_task = asyncio.create_task(asyncio.to_thread(
-                music_controller.generate_music_with_progress,
-                params=data,
-                progress_callback=progress_callback
-            ))
+        # 启动音乐生成任务
+        logger.info("Start music generation task")
 
-            # 处理进度消息直到生成完成
-            while not generation_task.done() and not generation_task.cancelled() and progress_value < 100:
-                try:
-                    await asyncio.wait(
-                        [progress_event.wait(), generation_task],  # 等待进度事件或任务完成
-                        return_when=asyncio.FIRST_COMPLETED,
-                        timeout=1
-                    )
-                    progress_event.clear()
-                    logger.info("Send progress message")
-                    yield f"data: {json.dumps({'event': 'progress', 'progress': progress_value})}\n\n"
-                except Exception as e:
-                    logger.error(f"Break loop, error processing progress message: {e}")
-                    break
+        generation_task = asyncio.create_task(asyncio.to_thread(
+            music_controller.generate_music_with_progress,
+            params=data,
+            progress_callback=progress_callback
+        ))
+    
 
-            # 如果任务没有被取消，获取生成结果并发送
-            if not generation_task.cancelled():
-                try:
-                    audio_data = await generation_task
-                    yield f"data: {json.dumps({'event': 'completed', 'audio': audio_data})}\n\n"
-                except InterruptedError as e:
-                    logger.warning(f"Music generation was interrupted: {e}")
-                    yield f"data: {json.dumps({'event': 'interrupted', 'message': '音乐生成已被中断'})}\n\n"
-                except ValueError as e:
-                    logger.error(f"Error in music generated parameters: {str(e)}")
-                    yield f"data: {json.dumps({'event': 'error', 'message': f'音乐生成参数错误: {e}'})}\n\n"
-                except Exception as e:
-                    logger.error(f"Error in getting music generation result: {str(e)}")
-                    yield f"data: {json.dumps({'event': 'error', 'message': f'获取音乐生成结果发生错误: {e}'})}\n\n"
-        except Exception as e:
-            logger.error(f"Error in music generation: {str(e)}")
-            yield f"data: {json.dumps({'event': 'error', 'message': f'音乐生成过程中发生错误: {e}'})}\n\n"
+        # 处理进度消息直到生成完成
+        while not generation_task.done() and not generation_task.cancelled() and progress_value < 100:
+            await asyncio.wait(
+                [progress_event.wait(), generation_task],  # 等待进度事件或任务完成
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=1
+            )
+            progress_event.clear()
+            logger.info("Send progress message")
+            yield f"data: {json.dumps({'event': 'progress', 'progress': progress_value})}\n\n"
 
-    except asyncio.CancelledError:
-        if not generation_task.done():
-            generation_task.cancel()
+        # 如果任务没有被取消，获取生成结果并发送
+        if not generation_task.cancelled():
+            audio_data = await generation_task
+            yield f"data: {json.dumps({'event': 'completed', 'audio': audio_data})}\n\n"
+
+    except AssertionError as e:
+        logger.exception(e)
+        yield f"data: {json.dumps({'event': 'error', 'message': '音乐生成参数错误'})}\n\n"
+    except asyncio.CancelledError as e:
         progress_event.set()
         stop_event.set()
-        logger.warning("Generate progress stream cancelled")
-        yield f"data: {json.dumps({'event': 'cancelled', 'message': '流式生成音乐已取消'})}\n\n"
-    except asyncio.TimeoutError:
-        logger.error("Generate progress stream timeout")
-        yield f"data: {json.dumps({'event': 'error', 'message': '流式生成音乐超时'})}\n\n"
-    except Exception as e:
-        logger.error(f"Error in progress stream: {e}")
-        yield f"data: {json.dumps({'event': 'error', 'message': '音乐生成过程中发生错误'})}\n\n"
+        logger.exception(e)
     finally:
-        generation_task.cancel()
+        if not generation_task.done():
+            generation_task.cancel()
         global_semaphore.release()
         logger.info("Semaphore released after generate progress stream completion")
 
@@ -119,19 +98,25 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
 async def http_generate_music(request: Request):
     """流式生成音乐接口
     """
-    try:
-        # 尝试获取信号量，设置超时时间为0.1秒
-        await asyncio.wait_for(global_semaphore.acquire(), timeout=0.1)
+    # 限流检测
+    if global_semaphore.locked():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
+        )
+    else:
+        await global_semaphore.acquire()
+    
         # 获取请求数据
-        data = await request.json()
-        
-        # 查询入参是否为json格式
-        if not isinstance(data, dict):
+        try:
+            data = await request.json()
+        except Exception as e:
+            global_semaphore.release()
             return JSONResponse(
                 status_code=400,
                 content={"error": "入参出错，请检查入参是否为json格式"}
             )
-      
+        
         # 返回SSE流式响应
         return StreamingResponse(
             generate_progress_stream(data, request),
@@ -142,20 +127,6 @@ async def http_generate_music(request: Request):
                 "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
                 "Access-Control-Allow-Origin": "*"  # 允许跨域访问
             }
-        )
-
-    except asyncio.TimeoutError:
-        logger.error("Rate limit reached, request rejected")
-        return JSONResponse(
-            status_code=503,
-            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in server internal: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": "服务器内部错误"}
         )
 
 app.include_router(router)

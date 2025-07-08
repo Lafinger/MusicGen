@@ -21,4 +21,4 @@ RUN mkdir -p /workspace && git clone https://gitee.com/jasonchen955/MusicGen.git
 WORKDIR /workspace/MusicGen/api
 
 # 设置启动命令
-CMD ["python3", "./main.py", "--host", "0.0.0.0", "--port", "5555", "--model_name", "facebook/musicgen-large"]
+CMD ["python3", "./main.py", "--host", "0.0.0.0", "--port", "5555", "--music_model_name", "facebook/musicgen-large"]

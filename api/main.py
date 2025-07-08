@@ -67,15 +67,12 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
             # 处理进度消息直到生成完成
             while not generation_task.done() and not generation_task.cancelled() and progress_value < 100:
                 try:
-                    done, pending = await asyncio.wait(
+                    await asyncio.wait(
                         [progress_event.wait(), generation_task],  # 等待进度事件或任务完成
                         return_when=asyncio.FIRST_COMPLETED,
                         timeout=1
                     )
                     progress_event.clear()
-                    # if generation_task in done:
-                    #     logger.warning("Generation task done")
-                    #     break
                     logger.info("Send progress message")
                     yield f"data: {json.dumps({'event': 'progress', 'progress': progress_value})}\n\n"
                 except Exception as e:
@@ -98,9 +95,10 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
                     yield f"data: {json.dumps({'event': 'error', 'message': f'获取音乐生成结果发生错误: {e}'})}\n\n"
 
         except asyncio.CancelledError:
-            stop_event.set()
             if not generation_task.done():
                 generation_task.cancel()
+            progress_event.set()
+            stop_event.set()
             logger.warning("Generate progress stream cancelled")
             yield f"data: {json.dumps({'event': 'cancelled', 'message': '流式生成音乐已取消'})}\n\n"
         except Exception as e:

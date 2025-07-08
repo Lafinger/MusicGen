@@ -1,30 +1,25 @@
 import asyncio
-import websockets
 import json
 import base64
 import os
 import uuid
+import aiohttp
 
 class MusicGenClient:
-    """音乐生成WebSocket客户端
+    """音乐生成客户端
     
-    用于测试音乐生成服务的WebSocket接口
+    用于测试音乐生成服务的HTTP接口，支持SSE流式接收结果
     """
     
-    def __init__(self, websocket_url: str = "ws://localhost:5555"):
+    def __init__(self, server_url: str = "http://localhost:5555"):
         """初始化客户端
         
         Args:
-            websocket_url (str): WebSocket服务器地址
+            server_url (str): 服务器地址
         """
-        self.websocket_url = websocket_url
+        self.server_url = server_url
         self.client_id = str(uuid.uuid4())  # 使用UUID作为客户端ID
         
-    async def connect(self):
-        """连接到WebSocket服务器"""
-        full_url = f"{self.websocket_url}/ws/music/{self.client_id}"
-        return await websockets.connect(full_url)
-    
     def save_audio(self, audio_base64: str, output_path: str = "output"):
         """保存音频文件
         
@@ -61,53 +56,77 @@ class MusicGenClient:
                 - cfg_coef (float): 无分类器指导系数
         """
         try:
-            websocket = await self.connect()
-            try:
-                # 准备请求参数
-                params = {
-                    **kwargs
-                }
-                
-                # 发送生成请求
-                await websocket.send(json.dumps(params))
-                print("已发送生成请求...")
-                
-                # 等待并处理响应
-                while True:
-                    try:
-                        response = await websocket.recv()
-                        data = json.loads(response)
+            # 准备请求参数
+            params = {
+                **kwargs
+            }
+            
+            # 设置HTTP请求头
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "X-Request-Id": self.client_id
+            }
+            
+            # 设置较大的读取缓冲区以处理大型响应块
+            tcp_connector = aiohttp.TCPConnector(limit=5)
+            client_timeout = aiohttp.ClientTimeout(total=3600)  # 1小时超时
+            
+            # 发送请求并获取SSE流
+            async with aiohttp.ClientSession(connector=tcp_connector, timeout=client_timeout, 
+                                            read_bufsize=1024*1024*10) as session:  # 10MB读取缓冲区
+                print("正在发送生成请求...")
+                async with session.post(
+                    f"{self.server_url}/api/v1/generate_music", 
+                    json=params,
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        print(f"错误: 服务器返回状态码 {response.status}")
+                        print(f"错误信息: {error_text}")
+                        return
                         
-                        if data["status"] != "healthy":
-                            print(f"错误: {data}")
-                            break
-                            
-                        if data["event"] == "start":
-                            print("开始生成音乐...")
-                        elif data["event"] == "generating":
-                            print(f"\r生成进度: {data.get('progress', 0):.2f}%", end="", flush=True)
-                        elif data["event"] == "completed":
-                            print("\n音乐生成完成！")
-                            self.save_audio(data["audio_data"])
-                            break
-                    except websockets.exceptions.ConnectionClosed:
-                        print("\nWebSocket连接已关闭")
-                        break
-                    except Exception as e:
-                        print(f"\n发生错误: {str(e)}")
-                        break
-            finally:
-                await websocket.close()
-                    
-        except websockets.exceptions.ConnectionClosed:
-            print("WebSocket连接已关闭")
+                    # 处理SSE流
+                    buffer = ""
+                    async for line_bytes in response.content.iter_chunked(1024*1024):  # 以1MB为单位读取块
+                        line = line_bytes.decode('utf-8')
+                        buffer += line
+                        
+                        if buffer.endswith('\n\n'):
+                            for event_data in buffer.split('\n\n'):
+                                if event_data.startswith('data: '):
+                                    try:
+                                        data = json.loads(event_data[6:])  # 去除"data: "前缀
+                                        
+                                        if "event" in data:
+                                            if data["event"] == "start":
+                                                print("开始生成音乐...")
+                                            elif data["event"] == "progress":
+                                                print(f"\r生成进度: {data.get('progress', 0):.2f}%", end="", flush=True)
+                                            elif data["event"] == "completed":
+                                                print("\n音乐生成完成！")
+                                                if "audio" in data:
+                                                    self.save_audio(data["audio"])
+                                                else:
+                                                    print("警告: 返回的数据中没有音频内容")
+                                                return
+                                            elif data["event"] == "error":
+                                                print(f"\n错误: {data.get('message', '未知错误')}")
+                                                return
+                                    except json.JSONDecodeError as e:
+                                        print(f"解析SSE事件数据出错: {e}")
+                            buffer = ""
+                                    
+        except aiohttp.ClientError as e:
+            print(f"HTTP请求错误: {str(e)}")
         except Exception as e:
             print(f"发生错误: {str(e)}")
 
 async def main():
     """测试示例"""
     # 创建客户端实例
-    client = MusicGenClient(websocket_url="ws://localhost:5555")
+    client = MusicGenClient(server_url="http://localhost:5555")
     
     # 测试参数
     params = {

@@ -66,8 +66,8 @@ class MusicGenClient:
             # 设置HTTP请求头
             headers = {
                 "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-                "X-Request-Id": self.client_id
+                "Accept": "text/event-stream"
+                # "X-Request-Id": self.client_id
             }
             
             # 设置较大的读取缓冲区以处理大型响应块

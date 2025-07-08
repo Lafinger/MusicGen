@@ -10,8 +10,8 @@ import base64
 import typing as tp
 
 class MusicController:
-    def __init__(self):
-        self.musicgen_service = MusicGenService()
+    def __init__(self, model_name: str = 'facebook/musicgen-large'):
+        self.musicgen_service = MusicGenService(model_name)
 
     def generate_music_with_progress(self, params: tp.Optional[dict] = None, progress_callback: tp.Optional[tp.Callable[[float], None]] = None) -> str:
         """处理音乐生成请求

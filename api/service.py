@@ -12,23 +12,24 @@ class MusicGenService:
     ''' 音乐生成服务 '''
 
     _instance = None
+    _model_name = None
 
-    def __new__(cls):
+    def __new__(cls, model_name: str = 'facebook/musicgen-large'):
         ''' 单例模式 '''
         if cls._instance is None:
             cls._instance = super(MusicGenService, cls).__new__(cls)
-            cls._instance.init_resources()
+            cls._instance.init_resources(model_name)
         else:
             logger.warning("MusicGenService already initialized")
         return cls._instance
 
-    def init_resources(self):
+    def init_resources(self, model_name: str = 'facebook/musicgen-large'):
         ''' 初始化模型和处理器资源 '''
 
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available")
 
-        self.model = MusicGen.get_pretrained('facebook/musicgen-large')
+        self.model = MusicGen.get_pretrained(model_name)
         self.mbd_model = MultiBandDiffusion.get_mbd_musicgen()
     
     def enhance_user_prompt(self, user_prompt: str):

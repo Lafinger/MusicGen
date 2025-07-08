@@ -6,17 +6,14 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Dict, AsyncGenerator
 import asyncio
 import json
-
-# 全局信号量，限制只允许一个连接
-global_semaphore = asyncio.Semaphore(1)
-
-music_controller = MusicController()
+import argparse
 
 
 app = FastAPI(
-    title="音乐生成服务", 
-    description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
-    version="1.0.0")
+        title="音乐生成服务", 
+        description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
+        version="1.0.0")
+
 
 @app.middleware("http")
 async def request_middleware(request: Request, call_next):
@@ -133,8 +130,24 @@ async def http_generate_music(request: Request):
         )
 
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="音乐生成服务API")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="服务监听地址，默认为0.0.0.0")
+    parser.add_argument("--port", type=int, default=5555, help="服务监听端口，默认为5555")
+    parser.add_argument("--model_name", type=str, default="facebook/musicgen-large", help="音乐生成模型名称，默认为facebook/musicgen-large")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     setup_logging()
 
+    # 解析命令行参数
+    args = parse_arguments()
+    
+    # 全局信号量，限制只允许一个连接
+    global_semaphore = asyncio.Semaphore(1)
+    music_controller = MusicController(model_name=args.model_name)
+
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5555, log_config="uvicorn_config.json", log_level="info")
+    uvicorn.run("main:app", host=args.host, port=args.port, log_config="uvicorn_config.json", log_level="info")

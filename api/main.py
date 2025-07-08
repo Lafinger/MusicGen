@@ -134,7 +134,6 @@ async def http_generate_music(request: Request):
 
 
 if __name__ == "__main__":
-
     setup_logging()
 
     import uvicorn

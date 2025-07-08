@@ -28,7 +28,7 @@ class MusicGenService:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available")
 
-        self.model = MusicGen.get_pretrained('facebook/musicgen-small')
+        self.model = MusicGen.get_pretrained('facebook/musicgen-large')
         self.mbd_model = MultiBandDiffusion.get_mbd_musicgen()
     
     def enhance_user_prompt(self, user_prompt: str):

@@ -24,4 +24,4 @@ WORKDIR /workspace/MusicGen/api
 # musicgen-small、musicgen-medium、musicgen-large
 # musicgen-melody、musicgen-melody-large
 # musicgen-stereo-small、musicgen-stereo-medium、musicgen-stereo-large、musicgen-stereo-melody、musicgen-stereo-melody-large
-CMD ["python3", "./main.py", "--host", "0.0.0.0", "--port", "5555", "--music_model_name", "facebook/musicgen-melody-large"]
+CMD ["python3", "./main.py", "--host", "0.0.0.0", "--port", "5555", "--music_model_name", "facebook/musicgen-large"]

@@ -26,25 +26,25 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 
-# @app.middleware("http")
-# async def request_middleware(request: Request, call_next):
-#     """
-#     1.设置日志的全链路追踪
-#     2.记录错误日志
-#     """
-#     try:
-#         REQUEST_ID_KEY = "X-Request-Id"
-#         _req_id_val = request.headers.get(REQUEST_ID_KEY, "")
-#         req_id = TraceID.set(_req_id_val)
-#         logger.info(f"{request.method} {request.url}")
-#         response = await call_next(request)
-#         response.headers[REQUEST_ID_KEY] = req_id.get()
-#         return response
-#     except Exception as ex:
-#         logger.exception(ex)  # 这个方法能记录错误栈
-#         return JSONResponse(content={"success": False}, status_code=500)
-#     finally:
-#         pass
+@app.middleware("http")
+async def request_middleware(request: Request, call_next):
+    """
+    1.设置日志的全链路追踪
+    2.记录错误日志
+    """
+    try:
+        REQUEST_ID_KEY = "X-Request-Id"
+        _req_id_val = request.headers.get(REQUEST_ID_KEY, "")
+        req_id = TraceID.set(_req_id_val)
+        logger.info(f"{request.method} {request.url}")
+        response = await call_next(request)
+        response.headers[REQUEST_ID_KEY] = req_id.get()
+        return response
+    except Exception as ex:
+        logger.exception(ex)  # 这个方法能记录错误栈
+        return JSONResponse(content={"success": False}, status_code=500)
+    finally:
+        pass
 
 
 async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerator[str, None]:

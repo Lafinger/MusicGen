@@ -1,13 +1,11 @@
 from service import MusicGenService
 
 import io
-import re
 import scipy
 from loguru import logger
 import numpy as np
-
 import base64
-import typing as tp
+from typing import Dict, Any, Optional, Callable
 
 class MusicController:
     def __init__(self):
@@ -16,11 +14,11 @@ class MusicController:
     def init_music_model(self, model_name: str = 'facebook/musicgen-large') -> None:
         self.musicgen_service.init_music_model(model_name)
 
-    def generate_music_with_progress(self, params: tp.Optional[dict] = None, progress_callback: tp.Optional[tp.Callable[[float], None]] = None) -> str:
+    def generate_music_with_progress(self, params: Dict[str, Any], progress_callback: Optional[Callable[[float], None]] = None) -> str:
         """处理音乐生成请求
 
         Args:
-            params (Optional[dict]): 包含生成参数的字典
+            params (Dict[str, Any]): 包含生成参数的字典
                 - description: 音乐描述
                 - duration: 音频时长（可选，默认30秒）
                 - mbd: 是否使用MultiBand Diffusion（可选，默认False）

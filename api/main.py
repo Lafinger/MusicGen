@@ -109,7 +109,7 @@ class ServerBusyResponse(BaseModel):
     error: str = Field(..., description="错误信息")
 
 
-async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
+async def generate_progress_stream(data: Dict[str, Any], request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
     generation_task = None  # 初始化为None，防止在异常时未定义
     try:
@@ -208,11 +208,11 @@ async def http_generate_music(
         await global_semaphore.acquire()
         
         # 将Pydantic模型转换为字典
-        params_dict = music_params.model_dump()
+        params = music_params.model_dump()
         
         # 返回SSE流式响应
         return StreamingResponse(
-            generate_progress_stream(params_dict, request),
+            generate_progress_stream(params, request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache", # 禁止浏览器缓存响应内容， 用于SSE流式响应

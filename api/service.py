@@ -1,18 +1,17 @@
 from loguru import logger
 from audiocraft.models.encodec import InterleaveStereoCompressionModel
 from audiocraft.models import MusicGen, MultiBandDiffusion
-from audiocraft.data.audio import audio_write
 
 import torch
 import time
-import typing as tp
 import numpy as np
 from einops import rearrange
+from typing import Optional, Callable
 
 class MusicGenService:
     ''' 音乐生成服务 '''
 
-    _instance: tp.Optional['MusicGenService'] = None
+    _instance: Optional['MusicGenService'] = None
 
     def __new__(cls):
         ''' 单例模式 '''
@@ -54,7 +53,7 @@ class MusicGenService:
         top_p: float = 0.0, 
         temperature: float = 1.0, 
         cfg_coef: float = 3.0,
-        progress_callback: tp.Optional[tp.Callable[[float], None]] = None
+        progress_callback: Optional[Callable[[float], None]] = None
         ) -> tuple[np.ndarray, int]:
         """生成音频数据
 

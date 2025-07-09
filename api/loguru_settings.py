@@ -6,6 +6,8 @@ from pathlib import Path
 from loguru import logger
 
 
+
+
 # 使用任务request_id来实现全链路日志追踪
 _x_request_id: ContextVar[str] = ContextVar('x_request_id', default="")  # 请求ID
 
@@ -25,7 +27,7 @@ class TraceID:
         return _x_request_id
 
 
-def _logger_filter(record):
+def _logger_filter(record) -> bool:
     record['request_id'] = f"{_x_request_id.get()}"
     return True
 

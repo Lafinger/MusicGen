@@ -2,7 +2,7 @@ from loguru_settings import TraceID, logger, setup_logging
 from controller import MusicController
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, AsyncGenerator
 import asyncio
@@ -20,21 +20,23 @@ app = FastAPI(
 # 添加CORS中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源
-    allow_credentials=True,
-    allow_methods=["*"],  # 允许所有方法
-    allow_headers=["*"],  # 允许所有请求头
+    allow_origins=["*"],  # 允许所有来源，如["https://example.com", "https://app.example.com"]
+    allow_credentials=True, # 允许跨域请求携带凭据（Cookie、认证头、TLS客户端证书）
+    allow_methods=["*"],  # 允许所有方法， 如：["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+    allow_headers=["*"],  # 允许所有请求头， 如：["Content-Type", "Authorization", "X-Request-Id"]
+    expose_headers=["*"],  # 暴露所有请求头， 如：["Content-Type", "Authorization", "X-Request-Id"]
+    max_age=600, # 预检请求（OPTIONS）结果的缓存时间（秒）, 减少OPTIONS请求频率，提高性能
 )
 
 @app.middleware("http")
-async def request_middleware(request: Request, call_next):
+async def request_middleware(request: Request, call_next) -> Response:
     """
     1.设置日志的全链路追踪
     2.记录错误日志
     """
     try:
         REQUEST_ID_KEY = "X-Request-Id"
-        _req_id_val = request.headers.get(REQUEST_ID_KEY, "??????")
+        _req_id_val = request.headers.get(REQUEST_ID_KEY, "??????") # 如果请求头中没有X-Request-Id，则设置为??????
         req_id = TraceID.set(_req_id_val)
         logger.info(f"{request.method} {request.url}")
         response = await call_next(request)
@@ -107,7 +109,7 @@ async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerat
         logger.info("Semaphore released after generate progress stream completion")
 
 @app.post("/api/v1/generate_music")
-async def http_generate_music(request: Request):
+async def http_generate_music(request: Request) -> Response:
     """流式生成音乐接口
     """
     # 限流检测
@@ -134,15 +136,15 @@ async def http_generate_music(request: Request):
             generate_progress_stream(data, request),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+                "Cache-Control": "no-cache", # 禁止浏览器缓存响应内容， 用于SSE流式响应
+                "Connection": "keep-alive", # 保持连接， 用于SSE流式响应
+                "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲， Nginx默认会缓冲响应再发送，导致流式数据延迟，禁用后，Nginx会立即发送响应
                 "Access-Control-Allow-Origin": "*"  # 允许跨域访问
             }
         )
 
 
-def parse_arguments():
+def parse_arguments() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="音乐生成服务API")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="服务监听地址，默认为0.0.0.0")

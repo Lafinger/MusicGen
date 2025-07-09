@@ -6,6 +6,7 @@ from audiocraft.data.audio import audio_write
 import torch
 import time
 import typing as tp
+import numpy as np
 from einops import rearrange
 
 class MusicGenService:
@@ -21,7 +22,7 @@ class MusicGenService:
             logger.warning("MusicGenService already initialized")
         return cls._instance
 
-    def init_music_model(self, model_name: str = 'facebook/musicgen-large'):
+    def init_music_model(self, model_name: str = 'facebook/musicgen-large') -> None:
         ''' 初始化模型和处理器资源 '''
 
         if not torch.cuda.is_available():
@@ -30,7 +31,7 @@ class MusicGenService:
         self.model = MusicGen.get_pretrained(model_name)
         self.mbd_model = MultiBandDiffusion.get_mbd_musicgen()
     
-    def enhance_user_prompt(self, user_prompt: str):
+    def enhance_user_prompt(self, user_prompt: str) -> str:
         # client = OpenAI(api_key=os.environ.get("o_key"))
         # completion = client.chat.completions.create(
         # model="gpt-4o-mini",
@@ -54,7 +55,7 @@ class MusicGenService:
         temperature: float = 1.0, 
         cfg_coef: float = 3.0,
         progress_callback: tp.Optional[tp.Callable[[float], None]] = None
-        ):
+        ) -> tuple[np.ndarray, int]:
         """生成音频数据
 
         Args:

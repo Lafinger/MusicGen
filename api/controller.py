@@ -13,7 +13,7 @@ class MusicController:
     def __init__(self):
         self.musicgen_service = MusicGenService()
 
-    def init_music_model(self, model_name: str = 'facebook/musicgen-large'):
+    def init_music_model(self, model_name: str = 'facebook/musicgen-large') -> None:
         self.musicgen_service.init_music_model(model_name)
 
     def generate_music_with_progress(self, params: tp.Optional[dict] = None, progress_callback: tp.Optional[tp.Callable[[float], None]] = None) -> str:

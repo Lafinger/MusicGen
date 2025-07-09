@@ -5,13 +5,11 @@ from fastapi import FastAPI, Request, Header
 from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Dict, Any, Literal, Union
 import asyncio
 import json
 import argparse
 import uuid
-
-
 
 # 全局变量
 global_semaphore = asyncio.Semaphore(1)
@@ -52,10 +50,7 @@ async def request_middleware(request: Request, call_next) -> Response:
     finally:
         pass
 
-
-
-
-# 定义请求模型
+# 定义请求体
 class MusicGenerationRequest(BaseModel):
     description: str = Field(..., description="用于音乐生成的文本提示")
     mbd: Optional[bool] = Field(default=False, description="是否使用多波段扩散模型")
@@ -64,6 +59,54 @@ class MusicGenerationRequest(BaseModel):
     top_p: Optional[float] = Field(default=0.0, description="采样时考虑的累积概率阈值", ge=0, le=1)
     temperature: Optional[float] = Field(default=3.0, description="采样温度，控制随机性", ge=0)
     cfg_coef: Optional[float] = Field(default=3.0, description="无分类器指导系数")
+
+# 定义响应体
+# 定义API响应示例
+SUCCESS_RESPONSE_EXAMPLE = {
+    "description": "成功响应，返回事件流",
+    "content": {
+        "text/event-stream": {
+            "example": 'data: {"event": "start"}\n\n'
+                      'data: {"event": "progress", "progress": 50.0}\n\n'
+                      'data: {"event": "completed", "audio": "base64_audio_data..."}'
+        }
+    }
+}
+
+VALIDATION_ERROR_RESPONSE_EXAMPLE = {
+    "description": "验证错误",
+    "content": {
+        "application/json": {
+            "example": {"detail": [{"loc": ["body", "description"], "msg": "field required", "type": "value_error.missing"}]}
+        }
+    }
+}
+
+SERVER_BUSY_RESPONSE_EXAMPLE = {
+    "description": "服务器忙",
+    "content": {
+        "application/json": {
+            "example": {"error": "服务器正忙，当前正在处理任务，请稍后重试"}
+        }
+    }
+}
+
+# 组合所有响应
+API_RESPONSES_EXAMPLE: Dict[Union[int, str], Dict[str, Any]] = {
+    200: SUCCESS_RESPONSE_EXAMPLE,
+    422: VALIDATION_ERROR_RESPONSE_EXAMPLE,
+    503: SERVER_BUSY_RESPONSE_EXAMPLE
+}
+
+class EventStreamResponse(BaseModel):
+    event: Literal["start", "progress", "completed", "error"] = Field(..., description="事件类型")
+    progress: Optional[float] = Field(default=None, description="生成进度百分比", ge=0, le=100)
+    audio: Optional[str] = Field(default=None, description="Base64编码的音频数据")
+    message: Optional[str] = Field(default=None, description="错误信息")
+
+class ServerBusyResponse(BaseModel):
+    """服务器忙响应模型"""
+    error: str = Field(..., description="错误信息")
 
 
 async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
@@ -85,7 +128,8 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
 
         # 发送开始事件
         logger.info("Sending start event")
-        yield f"data: {json.dumps({'event': 'start'})}\n\n"
+        start_event = EventStreamResponse(event="start")
+        yield f"data: {json.dumps(start_event.model_dump(exclude_none=True))}\n\n"
 
         # 启动音乐生成任务
         logger.info("Start music generation task")
@@ -105,16 +149,19 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
             )
             progress_event.clear()
             logger.info("Send progress message")
-            yield f"data: {json.dumps({'event': 'progress', 'progress': progress_value})}\n\n"
+            progress_event_data = EventStreamResponse(event="progress", progress=progress_value)
+            yield f"data: {json.dumps(progress_event_data.model_dump(exclude_none=True))}\n\n"
 
         # 如果任务没有被取消，获取生成结果并发送
         if not generation_task.cancelled():
             audio_data = await generation_task
-            yield f"data: {json.dumps({'event': 'completed', 'audio': audio_data})}\n\n"
+            completed_event = EventStreamResponse(event="completed", audio=audio_data)
+            yield f"data: {json.dumps(completed_event.model_dump(exclude_none=True))}\n\n"
 
     except AssertionError as e:
         logger.exception(e)
-        yield f"data: {json.dumps({'event': 'error', 'message': '音乐生成参数错误'})}\n\n"
+        error_event = EventStreamResponse(event="error", message="音乐生成参数错误")
+        yield f"data: {json.dumps(error_event.model_dump(exclude_none=True))}\n\n"
     except asyncio.CancelledError as e:
         progress_event.set()
         stop_event.set()
@@ -125,7 +172,13 @@ async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerat
         global_semaphore.release()
         logger.info("Semaphore released after generate progress stream completion")
 
-@app.post("/api/v1/generate_music", summary="Http Generate Music", description="使用Streamable HTTP流式响应生成音乐接口")
+@app.post(
+    "/api/v1/generate_music", 
+    summary="Http Generate Music", 
+    description="使用Streamable HTTP流式响应生成音乐接口",
+    response_class=StreamingResponse,
+    responses=API_RESPONSES_EXAMPLE
+)
 async def http_generate_music(
     request: Request, 
     music_params: MusicGenerationRequest,
@@ -139,16 +192,17 @@ async def http_generate_music(
         music_params: 音乐生成的参数
         content_type: 内容类型，必须为application/json
         accept: 接收类型，必须为text/event-stream
-        x_request_id: 请求追踪ID，用于全链路追踪，如不提供将自动生成
+        x_request_id: 请求追踪ID，用于全链路追踪
         
     Returns:
         流式事件响应，包含进度和最终生成的音频数据
     """
     # 限流检测
     if global_semaphore.locked():
+        busy_response = ServerBusyResponse(error="服务器正忙，当前正在处理任务，请稍后重试")
         return JSONResponse(
             status_code=503,
-            content={"error": "服务器正忙，当前正在处理任务，请稍后重试"}
+            content=busy_response.model_dump()
         )
     else:
         await global_semaphore.acquire()

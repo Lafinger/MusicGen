@@ -34,7 +34,7 @@ async def request_middleware(request: Request, call_next):
     """
     try:
         REQUEST_ID_KEY = "X-Request-Id"
-        _req_id_val = request.headers.get(REQUEST_ID_KEY, "")
+        _req_id_val = request.headers.get(REQUEST_ID_KEY, "??????")
         req_id = TraceID.set(_req_id_val)
         logger.info(f"{request.method} {request.url}")
         response = await call_next(request)

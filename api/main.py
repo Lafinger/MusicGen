@@ -1,20 +1,24 @@
 from loguru_settings import TraceID, logger, setup_logging
 from controller import MusicController
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header
 from fastapi.responses import Response, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, AsyncGenerator
+from pydantic import BaseModel, Field
+from typing import AsyncGenerator, Optional
 import asyncio
 import json
 import argparse
+import uuid
+
+
 
 # 全局变量
 global_semaphore = asyncio.Semaphore(1)
 music_controller = MusicController()
 app = FastAPI(
         title="音乐生成服务", 
-        description="使用Websocket和Streamable HTTP方案实现的音乐生成服务API",
+        description="使用Streamable HTTP方案实现的音乐生成服务API",
         version="1.0.0")
 
 # 添加CORS中间件
@@ -49,7 +53,20 @@ async def request_middleware(request: Request, call_next) -> Response:
         pass
 
 
-async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerator[str, None]:
+
+
+# 定义请求模型
+class MusicGenerationRequest(BaseModel):
+    description: str = Field(..., description="用于音乐生成的文本提示")
+    mbd: Optional[bool] = Field(default=False, description="是否使用多波段扩散模型")
+    duration: Optional[int] = Field(default=30, description="生成音乐的时长(秒)", ge=1, le=60)
+    top_k: Optional[int] = Field(default=250, description="采样时考虑的最高概率的标记数", gt=0)
+    top_p: Optional[float] = Field(default=0.0, description="采样时考虑的累积概率阈值", ge=0, le=1)
+    temperature: Optional[float] = Field(default=3.0, description="采样温度，控制随机性", ge=0)
+    cfg_coef: Optional[float] = Field(default=3.0, description="无分类器指导系数")
+
+
+async def generate_progress_stream(data: dict, request: Request) -> AsyncGenerator[str, None]:
     """生成进度流"""
     generation_task = None  # 初始化为None，防止在异常时未定义
     try:
@@ -108,9 +125,24 @@ async def generate_progress_stream(data: Dict, request: Request) -> AsyncGenerat
         global_semaphore.release()
         logger.info("Semaphore released after generate progress stream completion")
 
-@app.post("/api/v1/generate_music")
-async def http_generate_music(request: Request) -> Response:
-    """流式生成音乐接口
+@app.post("/api/v1/generate_music", summary="Http Generate Music", description="使用Streamable HTTP流式响应生成音乐接口")
+async def http_generate_music(
+    request: Request, 
+    music_params: MusicGenerationRequest,
+    content_type: str = Header("application/json", description="必须为application/json", alias="Content-Type"),
+    accept: str = Header("text/event-stream", description="必须为text/event-stream", alias="Accept"),
+    x_request_id: str = Header(uuid.uuid4(), description="UUID4全链路追踪", alias="X-Request-Id"),
+) -> Response:
+    """使用Streamable HTTP流式响应生成音乐接口
+    
+    Args:
+        music_params: 音乐生成的参数
+        content_type: 内容类型，必须为application/json
+        accept: 接收类型，必须为text/event-stream
+        x_request_id: 请求追踪ID，用于全链路追踪，如不提供将自动生成
+        
+    Returns:
+        流式事件响应，包含进度和最终生成的音频数据
     """
     # 限流检测
     if global_semaphore.locked():
@@ -120,20 +152,13 @@ async def http_generate_music(request: Request) -> Response:
         )
     else:
         await global_semaphore.acquire()
-    
-        # 获取请求数据
-        try:
-            data = await request.json()
-        except Exception:
-            global_semaphore.release()
-            return JSONResponse(
-                status_code=400,
-                content={"error": "入参出错，请检查入参是否为json格式"}
-            )
+        
+        # 将Pydantic模型转换为字典
+        params_dict = music_params.model_dump()
         
         # 返回SSE流式响应
         return StreamingResponse(
-            generate_progress_stream(data, request),
+            generate_progress_stream(params_dict, request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache", # 禁止浏览器缓存响应内容， 用于SSE流式响应

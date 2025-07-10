@@ -1,126 +1,167 @@
-# 音乐生成服务 API 文档
+# MusicGen API 服务
 
-## 简介
+基于 Facebook 的 MusicGen 模型实现的音乐生成 API 服务。本项目提供了一个易于使用的 FastAPI 接口，支持流式响应的文本到音乐生成功能。
 
-音乐生成服务是基于Facebook的MusicGen模型构建的音乐生成API服务。该服务支持通过文本描述生成音乐，并使用Server-Sent Events (SSE)提供实时进度反馈。
+## 项目特点
 
-## 基本信息
+- 使用 FastAPI 搭建高性能 API
+- 支持 SSE (Server-Sent Events) 流式响应，实时展示生成进度
+- 基于 Facebook 的 MusicGen 大型音乐生成模型
+- 支持多波段扩散 (Multi-Band Diffusion) 增强音质
+- 完整的日志追踪系统，支持全链路请求跟踪
+- 提供同步和异步两种客户端示例
+- 客户端连接中断会打断语音生成，语音生成完成服务器会主动断开连接
 
-- **基础URL**: http://[host]:[port]
-- **默认端口**: 5555
-- **协议**: HTTP
+## 架构设计
 
-## 注意事项
+项目采用三层架构设计:
 
-1. 服务使用单例模式，同一时间只能处理一个请求，并发数为1，自动释放资源机制
-2. 音频生成需要CUDA支持
-3. 返回的音频数据为WAV格式，采样率为32000Hz，16位整数编码，支持单声道和立体声输出
-4. 支持实时进度反馈
-5. 支持客户端中断生成，连接断开自动中断
-6. 消息为Server-Sent Events (SSE)标准事件
+1. **Controller 层**: 负责处理 HTTP 请求和响应，参数验证和格式转换
+2. **Service 层**: 封装核心业务逻辑，管理模型资源
+3. **模型层**: 封装 MusicGen 和 MultiBandDiffusion 模型的调用
 
-## API 端点
+### 主要文件说明
 
-### 生成音乐
+- `main.py`: 服务入口，包含 FastAPI 路由和中间件配置
+- `controller.py`: 控制器层，处理请求参数验证和响应格式化
+- `service.py`: 服务层，封装 MusicGen 模型调用的核心逻辑
+- `client_requests.py`: 基于 requests 的同步客户端示例
+- `client_aiohttp.py`: 基于 aiohttp 的异步客户端示例
+- `loguru_settings.py`: 日志配置，支持全链路追踪
+- `uvicorn_config.json`: uvicorn 服务器配置
 
-**端点**: `/api/v1/generate_music`
+## 快速开始
 
-**方法**: POST
+### 环境要求
 
-**描述**: 根据文本描述生成音乐，并以流式方式返回生成进度和结果。
+- Python 3.9+
+- CUDA 支持的 GPU (用于模型推理)
+- 以下依赖包：
+  ```
+  uvicorn==0.24.0
+  fastapi==0.104.1
+  scipy==1.13.0
+  loguru==0.7.2
+  ```
+- Facebook 的 Audiocraft 库 (包含 MusicGen 模型)
 
-#### 请求参数
+### 安装步骤
 
-请求体为JSON格式，包含以下字段：
+1. 克隆项目并进入目录
+   ```bash
+   git clone <repository_url>
+   cd MusicGen/api
+   ```
 
-| 参数名 | 类型 | 必需 | 默认值 | 描述 |
-|--------|------|------|--------|------|
-| description | string | 是 | - | 音乐描述文本，用于指导音乐生成 |
-| duration | integer | 否 | 30 | 音频时长（秒），范围：1-60秒 |
-| mbd | boolean | 否 | false | 是否使用MultiBand Diffusion增强生成质量 |
-| top_k | integer | 否 | 250 | top-k采样参数，控制生成多样性 |
-| top_p | float | 否 | 0.0 | top-p采样参数，范围：0-1.0 |
-| temperature | float | 否 | 1.0 | 温度参数，控制随机性 |
-| cfg_coef | float | 否 | 3.0 | 无分类器指导系数 |
+2. 安装依赖
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-**请求示例**:
+3. 安装 Audiocraft 库
+   ```bash
+   pip install git+https://github.com/facebookresearch/audiocraft.git
+   ```
 
+### 启动服务
+
+```bash
+python main.py --host 0.0.0.0 --port 5555 --music_model_name facebook/musicgen-large
+```
+
+可选参数:
+- `--host`: 服务监听地址，默认为 0.0.0.0
+- `--port`: 服务监听端口，默认为 5555
+- `--music_model_name`: 音乐生成模型名称，默认为 facebook/musicgen-large
+
+### API 端点
+
+#### 生成音乐
+- **URL**: `/api/v1/generate_music`
+- **方法**: POST
+- **Content-Type**: application/json
+- **Accept**: text/event-stream
+
+**请求参数**:
 ```json
 {
   "description": "电子音乐带有强烈的鼓点和节奏感",
-  "duration": 15,
+  "duration": 30,
   "mbd": false,
   "top_k": 250,
   "top_p": 0.0,
-  "temperature": 1.0,
+  "temperature": 3.0,
   "cfg_coef": 3.0
 }
 ```
 
-#### 响应格式
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|-------|------|------|-------|------|
+| description | string | 是 | - | 用于音乐生成的文本提示 |
+| duration | integer | 否 | 30 | 生成音乐的时长(秒)，范围1-60 |
+| mbd | boolean | 否 | false | 是否使用多波段扩散模型增强音质 |
+| top_k | integer | 否 | 250 | 采样时考虑的最高概率的标记数 |
+| top_p | number | 否 | 0.0 | 采样时考虑的累积概率阈值 (0-1) |
+| temperature | number | 否 | 3.0 | 采样温度，控制随机性 |
+| cfg_coef | number | 否 | 3.0 | 无分类器指导系数 |
 
-响应使用Server-Sent Events (SSE)格式，包含以下事件类型：
+**响应**: 流式 SSE 事件
 
-1. **start**: 表示生成过程已开始
-   ```
+事件类型:
+1. **开始事件**:
+   ```json
    data: {"event": "start"}
    ```
 
-2. **progress**: 报告生成进度
+2. **进度事件**:
+   ```json
+   data: {"event": "progress", "progress": 50.0}
    ```
-   data: {"event": "progress", "progress": 25.5}
-   ```
-   - `progress`: 浮点数，表示生成进度百分比（0-100）
 
-3. **completed**: 生成完成，返回音频数据
+3. **完成事件**:
+   ```json
+   data: {"event": "completed", "audio": "base64编码的WAV音频数据"}
    ```
-   data: {"event": "completed", "audio": "BASE64_ENCODED_WAV_DATA"}
-   ```
-   - `audio`: Base64编码的WAV格式音频数据
 
-4. **error**: 发生错误
-   ```
+4. **错误事件**:
+   ```json
    data: {"event": "error", "message": "错误信息"}
    ```
-   - `message`: 错误描述信息
-
-#### 错误码
-
-| 状态码 | 描述 |
-|--------|------|
-| 400 | 请求格式错误，通常是因为JSON格式不正确 |
-| 503 | 服务器繁忙，当前正在处理其他请求 |
-| 500 | 服务器内部错误 |
-
-## 限制和注意事项
-
-1. 服务使用信号量进行限流，同一时间只能处理一个音乐生成请求
-2. 每次请求的音频时长最长为60秒
-3. 生成过程可能需要较长时间，根据请求参数和服务器性能不同而异
-4. 客户端需支持Server-Sent Events (SSE)以接收实时进度
 
 ## 客户端示例
 
-### Python 异步客户端
+### 同步客户端 (requests)
+
+```python
+from client_requests import MusicGenClient
+
+client = MusicGenClient(server_url="http://localhost:5555")
+
+params = {
+    "description": "电子音乐带有强烈的鼓点和节奏感",
+    "duration": 10,
+    "mbd": False,
+    "top_k": 250,
+    "top_p": 0.0,
+    "temperature": 1.0,
+    "cfg_coef": 3.0
+}
+
+client.generate_music(**params)
+```
+
+### 异步客户端 (aiohttp)
 
 ```python
 import asyncio
-import aiohttp
-import json
-import base64
-import os
+from client_aiohttp import MusicGenClient
 
-async def generate_music(description, duration=30, server_url="http://localhost:5555"):
-    """生成音乐并保存到文件
+async def main():
+    client = MusicGenClient(server_url="http://localhost:5555")
     
-    Args:
-        description: 音乐描述
-        duration: 音频时长（秒）
-        server_url: 服务器地址
-    """
     params = {
-        "description": description,
-        "duration": duration,
+        "description": "电子音乐带有强烈的鼓点和节奏感",
+        "duration": 10,
         "mbd": False,
         "top_k": 250,
         "top_p": 0.0,
@@ -128,153 +169,35 @@ async def generate_music(description, duration=30, server_url="http://localhost:
         "cfg_coef": 3.0
     }
     
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream"
-    }
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{server_url}/api/v1/generate_music", 
-            json=params,
-            headers=headers
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"错误: {error_text}")
-                return
-                
-            buffer = ""
-            async for line in response.content:
-                line = line.decode('utf-8')
-                buffer += line
-                
-                if buffer.endswith('\n\n'):
-                    for event_data in buffer.split('\n\n'):
-                        if event_data.startswith('data: '):
-                            data = json.loads(event_data[6:])
-                            
-                            if data["event"] == "start":
-                                print("开始生成音乐...")
-                            elif data["event"] == "progress":
-                                print(f"生成进度: {data.get('progress', 0):.2f}%")
-                            elif data["event"] == "completed":
-                                print("音乐生成完成！")
-                                if "audio" in data:
-                                    # 保存音频文件
-                                    audio_data = base64.b64decode(data["audio"])
-                                    os.makedirs("output", exist_ok=True)
-                                    output_file = os.path.join("output", "generated_music.wav")
-                                    with open(output_file, "wb") as f:
-                                        f.write(audio_data)
-                                    print(f"音频已保存到: {output_file}")
-                                return
-                            elif data["event"] == "error":
-                                print(f"错误: {data.get('message', '未知错误')}")
-                                return
-                    buffer = ""
+    await client.generate_music(**params)
 
-# 使用示例
-asyncio.run(generate_music("电子舞曲带有明亮的合成器和强烈的节拍", duration=15))
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-### JavaScript 客户端
+## 注意事项
 
-```javascript
-async function generateMusic(description, duration = 30) {
-  const serverUrl = 'http://localhost:5555';
-  const params = {
-    description,
-    duration,
-    mbd: false,
-    top_k: 250,
-    top_p: 0.0,
-    temperature: 1.0,
-    cfg_coef: 3.0
-  };
+1. 服务使用了信号量限制，同一时间只能处理一个生成请求，多余的请求会返回 503 状态码
+2. 生成过程较为耗时，根据模型大小和参数设置，可能需要几十秒到几分钟不等
+3. 服务使用较多的 GPU 内存，请确保有足够的 VRAM
+4. 音频结果以 Base64 编码的 WAV 格式返回
 
-  try {
-    // 创建EventSource连接
-    const response = await fetch(`${serverUrl}/api/v1/generate_music`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(params)
-    });
-    
-    // 使用ReadableStream读取SSE响应
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      
-      // 处理完整的SSE消息
-      const messages = buffer.split('\n\n');
-      buffer = messages.pop() || '';  // 保留最后一个不完整的消息
-      
-      for (const message of messages) {
-        if (message.startsWith('data: ')) {
-          const data = JSON.parse(message.substring(6));
-          
-          switch (data.event) {
-            case 'start':
-              console.log('开始生成音乐...');
-              break;
-            case 'progress':
-              console.log(`生成进度: ${data.progress.toFixed(2)}%`);
-              break;
-            case 'completed':
-              console.log('音乐生成完成！');
-              if (data.audio) {
-                // 将Base64音频转换为Blob
-                const audioBlob = base64ToBlob(data.audio, 'audio/wav');
-                // 创建下载链接
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const a = document.createElement('a');
-                a.href = audioUrl;
-                a.download = 'generated_music.wav';
-                a.click();
-                URL.revokeObjectURL(audioUrl);
-              }
-              return;
-            case 'error':
-              console.error(`错误: ${data.message || '未知错误'}`);
-              return;
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('请求失败:', error);
-  }
-}
+## 日志系统
 
-// 辅助函数：Base64转Blob
-function base64ToBlob(base64, mimeType) {
-  const byteCharacters = atob(base64);
-  const byteArrays = [];
-  
-  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-    const slice = byteCharacters.slice(offset, offset + 512);
-    const byteNumbers = new Array(slice.length);
-    
-    for (let i = 0; i < slice.length; i++) {
-      byteNumbers[i] = slice.charCodeAt(i);
-    }
-    
-    const byteArray = new Uint8Array(byteNumbers);
-    byteArrays.push(byteArray);
-  }
-  
-  return new Blob(byteArrays, { type: mimeType });
-}
+项目使用 loguru 配置了详细的日志系统：
 
-// 使用示例
-generateMusic('钢琴独奏带有情感的旋律', 20);
-```
+- 支持全链路请求追踪，通过 X-Request-Id 头部关联请求
+- 日志保存在 log 目录下
+- 日志格式包含时间、请求ID、日志级别、进程/线程信息和消息内容
+
+## 未来计划
+
+- [ ] 添加批处理模式，支持批量生成
+- [ ] 实现模型预热功能，提高首次生成速度
+- [ ] 添加更多风格控制参数
+- [ ] 支持提示词增强功能
+- [ ] 实现WebSocket接口，增强实时交互能力
+
+## 许可证
+
+[添加项目许可证信息]

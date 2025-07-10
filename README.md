@@ -27,7 +27,7 @@ python main.py --host 0.0.0.0 --port 5555 --music_model_name facebook/musicgen-l
 
 ```bash
 cd api/docker
-docker-compose up -d
+docker compose up -d
 ```
 
 ## 目录结构

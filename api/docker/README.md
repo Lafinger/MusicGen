@@ -33,12 +33,12 @@
 
 1. 一键部署：
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 2. 停止服务：
    ```bash
-   docker-compose down
+   docker compose down
    ```
 
 ## 目录挂载

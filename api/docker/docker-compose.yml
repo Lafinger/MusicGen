@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  musicgen-fastapi:
+    container_name: musicgen-fastapi
+    image: musicgen:cuda121-models-all-fastapi
+    build:
+      context: .
+      dockerfile: Dockerfile.musicgen.model.all.fastapi
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./output:/workspace/MusicGen/api/output
+      - ./log:/workspace/MusicGen/api/log
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - TZ=Asia/Shanghai
+    command: python3 ./main.py --host 0.0.0.0 --port 5555 --music_model_name facebook/musicgen-large 

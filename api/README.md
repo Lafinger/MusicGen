@@ -74,6 +74,104 @@ python main.py --host 0.0.0.0 --port 5555 --music_model_name facebook/musicgen-l
 - `--port`: 服务监听端口，默认为 5555
 - `--music_model_name`: 音乐生成模型名称，默认为 facebook/musicgen-large
 
+### Docker 构建与部署
+
+本项目提供了完整的 Docker 支持，可以通过以下步骤快速构建和部署 MusicGen API 服务。
+
+#### 1. 准备工作
+
+确保你的系统已安装 Docker 和 NVIDIA Container Toolkit（用于 GPU 支持）。
+
+```bash
+# 安装 NVIDIA Container Toolkit（如果尚未安装）
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+#### 2. 构建 Docker 镜像
+
+项目提供了多个 Dockerfile，用于不同的场景：
+
+- `Dockerfile.audiocraft.cuda121.models.all`: 构建包含所有 MusicGen 模型的基础镜像
+- `Dockerfile.musicgen.cuda121.models.tiny`: 构建仅包含小型模型的轻量级镜像
+- `Dockerfile.musicgen.model.all.fastapi`: 构建完整的 MusicGen API 服务镜像
+
+##### 构建基础镜像（如果需要）
+
+```bash
+cd api/docker
+docker build -f Dockerfile.audiocraft.cuda121.models.all -t musicgen:cuda121-models-all .
+```
+
+##### 构建 API 服务镜像
+
+```bash
+cd api/docker
+docker build -f Dockerfile.musicgen.model.all.fastapi -t musicgen:cuda121-models-all-fastapi .
+```
+
+#### 3. 运行 Docker 容器
+
+使用以下命令启动 MusicGen API 服务容器：
+
+```bash
+docker run -d --restart=unless-stopped --gpus all -p 5555:5555 musicgen:cuda121-models-all-fastapi
+```
+
+参数说明：
+- `-d`: 后台运行容器
+- `--restart=unless-stopped`: 容器异常退出时自动重启
+- `--gpus all`: 允许容器访问所有 GPU 资源
+- `-p 5555:5555`: 将容器的 5555 端口映射到主机的 5555 端口
+
+#### 4. 自定义模型选择
+
+如果需要使用不同的模型，可以在启动容器时通过环境变量或命令行参数指定：
+
+```bash
+docker run -d --restart=unless-stopped --gpus all -p 5555:5555 \
+  musicgen:cuda121-models-all-fastapi \
+  python3 ./main.py --host 0.0.0.0 --port 5555 --music_model_name facebook/musicgen-medium
+```
+
+可选的模型包括：
+- `facebook/musicgen-small`
+- `facebook/musicgen-medium`
+- `facebook/musicgen-large`
+- `facebook/musicgen-melody`
+- `facebook/musicgen-melody-large`
+- `facebook/musicgen-stereo-small`
+- `facebook/musicgen-stereo-medium`
+- `facebook/musicgen-stereo-large`
+
+#### 5. 使用 Docker Compose 部署
+
+项目提供了 `docker-compose.yml` 文件，可以更方便地部署和管理 MusicGen API 服务：
+
+```bash
+cd api/docker
+docker-compose up -d
+```
+
+Docker Compose 配置具有以下特点：
+- 自动构建和启动 API 服务
+- 挂载 `output` 和 `log` 目录，方便访问生成的音频文件和日志
+- 设置了 GPU 资源分配
+- 配置了自动重启策略
+- 支持通过环境变量和命令参数自定义配置
+
+如需停止服务：
+
+```bash
+cd api/docker
+docker-compose down
+```
+
+如需修改配置，可以编辑 `docker-compose.yml` 文件，例如更改端口映射或选择不同的模型。
+
 ### API 端点
 
 #### 生成音乐

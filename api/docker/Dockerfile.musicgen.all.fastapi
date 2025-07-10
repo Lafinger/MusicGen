@@ -1,0 +1,27 @@
+FROM musicgen:cuda121-models-all
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PATH="/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+# 设置 Hugging Face 镜像加速
+# ENV HF_HOME=/root/.cache/huggingface
+# ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV HF_ENDPOINT=https://hf-mirror.com
+
+COPY ./requirements-fastapi.txt /workspace/requirements-fastapi.txt
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements-fastapi.txt
+
+# 克隆仓库并安装依赖
+RUN mkdir -p /workspace && git clone https://gitee.com/jasonchen955/MusicGen.git /workspace/MusicGen
+
+# 切换到MusicGen目录
+WORKDIR /workspace/MusicGen/api
+
+# 设置启动命令
+# musicgen-small、musicgen-medium、musicgen-large
+# musicgen-melody、musicgen-melody-large
+# musicgen-stereo-small、musicgen-stereo-medium、musicgen-stereo-large、musicgen-stereo-melody、musicgen-stereo-melody-large
+CMD ["python3", "./main.py", "--host", "0.0.0.0", "--port", "5555", "--music_model_name", "facebook/musicgen-large"]

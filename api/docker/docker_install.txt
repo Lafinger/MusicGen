@@ -1,0 +1,18 @@
+# 导出基础镜像
+docker load -i musicgen_cuda121_models_all.tar
+
+#### flask ####
+# 构建musicgen服务镜像 端口5000
+无缓存构建：docker build --no-cache -f .\Dockerfile.musicgen.all.flask -t musicgen:cuda121-models-all-flask .
+缓存构建：docker build -f .\Dockerfile.musicgen.all.flask -t musicgen:cuda121-models-all-flask .
+
+# 运行musicgen镜像 端口5000
+docker run -d --restart=unless-stopped --gpus all -p 5000:5000 musicgen:cuda121-models-all-flask
+
+#### fastapi ####
+# 构建musicgen服务镜像5555
+无缓存构建：docker build --no-cache -f .\Dockerfile.musicgen.all.fastapi -t musicgen:cuda121-models-all-fastapi .
+缓存构建：docker build -f .\Dockerfile.musicgen.all.fastapi -t musicgen:cuda121-models-all-fastapi .
+
+# 运行musicgen镜像 端口5555
+docker run -d --restart=unless-stopped --gpus all -p 5555:5555 musicgen:cuda121-models-all-fastapi

@@ -15,9 +15,12 @@ import uuid
 global_semaphore = asyncio.Semaphore(1)
 music_controller = MusicController()
 app = FastAPI(
-        title="音乐生成服务", 
-        description="使用Streamable HTTP方案实现的音乐生成服务API",
-        version="1.0.0")
+    title="音乐生成服务", 
+    description="使用Streamable HTTP方案实现的音乐生成服务API",
+    version="1.0.0",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc"
+)
 
 # 添加CORS中间件
 app.add_middleware(
